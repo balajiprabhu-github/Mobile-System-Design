@@ -1,4 +1,4 @@
 {
-  "/api/feed": "/feed",
+  "/api/feed*": "/feed$query",
   "/api/posts/:id": "/posts/:id"
 }
