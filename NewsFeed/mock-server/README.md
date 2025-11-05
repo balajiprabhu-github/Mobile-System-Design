@@ -125,7 +125,7 @@ Content-Type: application/json
 
 ## Features
 
-✅ 10 sample posts with realistic data
+✅ 10,000 posts with realistic data (generated programmatically)
 ✅ Mock images from placeholder services
 ✅ Profile pictures
 ✅ Multiple attachments per post
@@ -136,16 +136,35 @@ Content-Type: application/json
 ## Mock Data
 
 The mock data includes:
-- **Feed**: 10 posts with various content types
+- **Feed**: 10,000 posts with various content types
 - **Posts**: Detailed post data with full content and attachments
-- **Authors**: 10 different users with profile pictures
-- **Attachments**: Images with URLs from Lorem Picsum
+- **Authors**: 20 different users with profile pictures
+- **Attachments**: Random images/videos with URLs from Lorem Picsum
+- **Timestamps**: Realistic dates spread over last 30 days
+- **Engagement**: Random like counts and interaction data
 
 ## Customization
 
-### Add More Posts
+### Regenerate Mock Data
 
-Edit `db.json` and add entries to the `feed` and `posts` arrays.
+The `db.json` file is excluded from git (it's ~15MB with 10k posts). To regenerate it:
+
+```bash
+node generate-data.js
+```
+
+This will create a fresh `db.json` with 10,000 posts. You can modify the script to change:
+- Number of posts (default: 10,000)
+- Content templates
+- Author names
+- Attachment ratios
+- Timestamp ranges
+
+After regenerating, restart the mock server to load the new data.
+
+### Add Posts Manually
+
+For small changes, you can also edit `db.json` directly and add entries to the `feed` and `posts` arrays. The server will auto-reload.
 
 ### Change Port
 
