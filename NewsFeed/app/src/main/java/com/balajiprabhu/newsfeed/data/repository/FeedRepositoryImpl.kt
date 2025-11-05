@@ -44,18 +44,25 @@ class FeedRepositoryImpl @Inject constructor(
                 }
             }
 
-            // 2. Fetch fresh data from network
-            val response = apiService.getFeed(page)
+            // 2. Fetch fresh data from network (mock server returns List<PostPreview>)
+            val posts = apiService.getFeed(page)
 
             // 3. Update cache for first page
             if (page == 0) {
                 // Clear old cache and insert new data
                 localDataSource.clearAllPosts()
-                val postEntities = response.feed.map { it.toEntity() }
+                val postEntities = posts.map { it.toEntity() }
                 localDataSource.insertPosts(postEntities)
             }
 
-            // 4. Emit network response
+            // 4. Emit network response wrapped in FeedApiResponse
+            val response = FeedApiResponse(
+                feed = posts,
+                paging = com.balajiprabhu.newsfeed.data.model.PaginationMetadata(
+                    nextPageUrl = null,
+                    hasMore = posts.size >= 20 // Assume more if we got a full page
+                )
+            )
             emit(Result.success(response))
 
         } catch (e: Exception) {
@@ -74,16 +81,16 @@ class FeedRepositoryImpl @Inject constructor(
                 emit(Result.success(cachedPost.toDetail()))
             }
 
-            // 2. Fetch fresh data from network
-            val response = apiService.getPostDetail(postId)
+            // 2. Fetch fresh data from network (mock server returns PostDetail directly)
+            val post = apiService.getPostDetail(postId)
 
             // 3. Update cache
-            val (postEntity, attachmentEntities) = response.post.toEntityWithAttachments()
+            val (postEntity, attachmentEntities) = post.toEntityWithAttachments()
             localDataSource.insertPost(postEntity)
             localDataSource.insertAttachments(attachmentEntities)
 
             // 4. Emit network response
-            emit(Result.success(response.post))
+            emit(Result.success(post))
 
         } catch (e: Exception) {
             // If network fails and we have cache, we've already emitted it

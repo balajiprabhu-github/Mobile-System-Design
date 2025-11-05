@@ -18,7 +18,19 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 object NetworkModule {
 
-    private const val BASE_URL = "https://your.api.base.url/"
+    /**
+     * Base URL for the News Feed API
+     *
+     * For development with mock server:
+     * - Android Emulator: http://10.0.2.2:3000/
+     * - Physical Device: http://YOUR_LOCAL_IP:3000/ (e.g., http://192.168.1.100:3000/)
+     * - Localhost (for tests): http://localhost:3000/
+     *
+     * Make sure to:
+     * 1. Start the mock server: cd mock-server && npm start
+     * 2. Use the appropriate URL for your testing environment
+     */
+    private const val BASE_URL = "http://10.0.2.2:3000/"
 
     @Provides
     @Singleton
@@ -47,12 +59,22 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideRetrofit(okHttpClient: OkHttpClient): Retrofit {
+    fun provideJson(): Json {
+        return Json {
+            ignoreUnknownKeys = true
+            isLenient = true
+            encodeDefaults = true
+        }
+    }
+
+    @Provides
+    @Singleton
+    fun provideRetrofit(okHttpClient: OkHttpClient, json: Json): Retrofit {
         val contentType = "application/json".toMediaType()
         return Retrofit.Builder()
             .baseUrl(BASE_URL)
             .client(okHttpClient)
-            .addConverterFactory(Json.asConverterFactory(contentType))
+            .addConverterFactory(json.asConverterFactory(contentType))
             .build()
     }
 
