@@ -22,15 +22,16 @@ object NetworkModule {
      * Base URL for the News Feed API
      *
      * For development with mock server:
-     * - Android Emulator: http://10.0.2.2:3000/
+     * - Android Emulator with adb reverse: http://localhost:3000/
+     * - Android Emulator without adb: http://10.0.2.2:3000/
      * - Physical Device: http://YOUR_LOCAL_IP:3000/ (e.g., http://192.168.1.100:3000/)
-     * - Localhost (for tests): http://localhost:3000/
      *
-     * Make sure to:
-     * 1. Start the mock server: cd mock-server && npm start
-     * 2. Use the appropriate URL for your testing environment
+     * Setup:
+     * 1. Start mock server: cd mock-server && npm start
+     * 2. Run adb reverse: adb reverse tcp:3000 tcp:3000
+     * 3. Run the app
      */
-    private const val BASE_URL = "http://10.0.2.2:3000/"
+    private const val BASE_URL = "http://localhost:3000/"
 
     @Provides
     @Singleton
