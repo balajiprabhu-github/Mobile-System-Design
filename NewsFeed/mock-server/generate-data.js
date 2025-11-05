@@ -122,6 +122,7 @@ function generatePost(id) {
   const content = generateContent();
 
   return {
+    id: id, // json-server requires 'id' field for resource lookup
     postId: id,
     contentSummary: content,
     author: {
@@ -158,6 +159,7 @@ function generatePostDetail(id) {
   }
 
   return {
+    id: id, // json-server requires 'id' field for resource lookup
     postId: id,
     content: feedPost.contentSummary + `\n\nFull content for post ${id}. This is the detailed view with all the information about this post.`,
     author: feedPost.author,
