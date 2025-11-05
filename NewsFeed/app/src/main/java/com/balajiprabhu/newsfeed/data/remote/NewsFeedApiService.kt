@@ -14,22 +14,22 @@ import retrofit2.http.Query
  * API Service for News Feed
  *
  * Mock Server Endpoints (development):
- * - GET  /api/feed - Returns array of PostPreview
- * - GET  /api/posts/{id} - Returns single PostDetail
- * - POST /api/posts - Create new post
- * - POST /api/posts/{id}/interact - Like/share post
+ * - GET  /feed - Returns array of PostPreview
+ * - GET  /posts/{id} - Returns single PostDetail
+ * - POST /posts - Create new post
+ * - POST /posts/{id}/interact - Like/share post
  */
 interface NewsFeedApiService {
 
-    @GET("api/feed")
+    @GET("feed")
     suspend fun getFeed(@Query("page") page: Int): List<com.balajiprabhu.newsfeed.data.model.PostPreview>
 
-    @GET("api/posts/{postId}")
+    @GET("posts/{postId}")
     suspend fun getPostDetail(@Path("postId") postId: Long): com.balajiprabhu.newsfeed.data.model.PostDetail
 
-    @POST("api/posts")
+    @POST("posts")
     suspend fun createPost(@Body request: NewPostRequest)
 
-    @POST("api/posts/{postId}/interact")
+    @POST("posts/{postId}/interact")
     suspend fun interactWithPost(@Path("postId") postId: Long, @Body request: PostInteractionRequest)
 }
