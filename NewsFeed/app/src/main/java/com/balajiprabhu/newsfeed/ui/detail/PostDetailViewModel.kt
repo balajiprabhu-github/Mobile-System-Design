@@ -94,7 +94,7 @@ class PostDetailViewModel @Inject constructor(
             // Send to repository
             feedRepository.interactWithPost(
                 postId = postId,
-                request = PostInteractionRequest(interaction = "like")
+                request = PostInteractionRequest(requestId = postId, type = "like")
             ).collect { result ->
                 result.onFailure { throwable ->
                     // Revert optimistic update on failure
@@ -117,7 +117,7 @@ class PostDetailViewModel @Inject constructor(
         viewModelScope.launch {
             feedRepository.interactWithPost(
                 postId = postId,
-                request = PostInteractionRequest(interaction = "share")
+                request = PostInteractionRequest(requestId = postId, type = "share")
             ).collect { result ->
                 result.onFailure { throwable ->
                     _uiState.update {

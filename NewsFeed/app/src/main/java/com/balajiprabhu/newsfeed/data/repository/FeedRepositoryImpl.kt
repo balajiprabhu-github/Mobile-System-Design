@@ -104,7 +104,7 @@ class FeedRepositoryImpl @Inject constructor(
         try {
             // Optimistic update: Update local cache first for instant UI feedback
             val cachedPost = localDataSource.getPostById(postId)
-            if (cachedPost != null && request.interaction == "like") {
+            if (cachedPost != null && request.type == "like") {
                 val newLiked = !cachedPost.liked
                 val newLikeCount = if (newLiked) cachedPost.likeCount + 1 else cachedPost.likeCount - 1
                 localDataSource.updatePostLikeStatus(postId, newLiked, newLikeCount)
@@ -117,7 +117,7 @@ class FeedRepositoryImpl @Inject constructor(
         } catch (e: Exception) {
             // If network fails, revert the optimistic update
             val cachedPost = localDataSource.getPostById(postId)
-            if (cachedPost != null && request.interaction == "like") {
+            if (cachedPost != null && request.type == "like") {
                 val revertLiked = !cachedPost.liked
                 val revertLikeCount = if (revertLiked) cachedPost.likeCount + 1 else cachedPost.likeCount - 1
                 localDataSource.updatePostLikeStatus(postId, revertLiked, revertLikeCount)

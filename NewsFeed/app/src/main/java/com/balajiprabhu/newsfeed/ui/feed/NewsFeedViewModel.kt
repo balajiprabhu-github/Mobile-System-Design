@@ -112,7 +112,7 @@ class NewsFeedViewModel @Inject constructor(
             // Send to repository
             feedRepository.interactWithPost(
                 postId = postId,
-                request = PostInteractionRequest(interaction = "like")
+                request = PostInteractionRequest(requestId = postId, type = "like")
             ).collect { result ->
                 result.onFailure { throwable ->
                     // Revert optimistic update on failure
