@@ -1,2 +1,4 @@
 node_modules/
 package-lock.json
+# Don't commit large generated db.json - regenerate with generate-data.js
+db.json
