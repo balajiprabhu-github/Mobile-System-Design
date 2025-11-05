@@ -6,6 +6,7 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import com.balajiprabhu.newsfeed.ui.create.CreatePostScreen
 import com.balajiprabhu.newsfeed.ui.detail.PostDetailScreen
 import com.balajiprabhu.newsfeed.ui.feed.NewsFeedScreen
 
@@ -50,11 +51,10 @@ fun NewsFeedNavGraph(
 
         // Create Post Screen
         composable(route = Screen.CreatePost.route) {
-            // CreatePostScreen will be implemented later
-            // CreatePostScreen(
-            //     onBackClick = { navController.popBackStack() },
-            //     onPostCreated = { navController.popBackStack() }
-            // )
+            CreatePostScreen(
+                onBackClick = { navController.popBackStack() },
+                onPostCreated = { navController.popBackStack() }
+            )
         }
     }
 }
