@@ -6,6 +6,8 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import com.balajiprabhu.newsfeed.ui.detail.PostDetailScreen
+import com.balajiprabhu.newsfeed.ui.feed.NewsFeedScreen
 
 /**
  * Main navigation graph for the app
@@ -22,15 +24,14 @@ fun NewsFeedNavGraph(
     ) {
         // News Feed Screen
         composable(route = Screen.NewsFeed.route) {
-            // NewsFeedScreen will be implemented next
-            // NewsFeedScreen(
-            //     onPostClick = { postId ->
-            //         navController.navigate(Screen.PostDetail.createRoute(postId))
-            //     },
-            //     onCreatePostClick = {
-            //         navController.navigate(Screen.CreatePost.route)
-            //     }
-            // )
+            NewsFeedScreen(
+                onPostClick = { postId ->
+                    navController.navigate(Screen.PostDetail.createRoute(postId))
+                },
+                onCreatePostClick = {
+                    navController.navigate(Screen.CreatePost.route)
+                }
+            )
         }
 
         // Post Detail Screen
@@ -41,13 +42,10 @@ fun NewsFeedNavGraph(
                     type = NavType.LongType
                 }
             )
-        ) { backStackEntry ->
-            val postId = backStackEntry.arguments?.getLong(Screen.PostDetail.POST_ID_ARG) ?: 0L
-            // PostDetailScreen will be implemented next
-            // PostDetailScreen(
-            //     postId = postId,
-            //     onBackClick = { navController.popBackStack() }
-            // )
+        ) {
+            PostDetailScreen(
+                onBackClick = { navController.popBackStack() }
+            )
         }
 
         // Create Post Screen
