@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pdftoppm -r 150 \"/Users/balajiprabhu/MobileSystemDesign/book/Design News feed App.pdf\" /tmp/newsfeed_page)",
+      "Read(//private/tmp/**)",
+      "Bash(pdftoppm -r 150 \"/Users/balajiprabhu/MobileSystemDesign/book/msd framework.pdf\" /tmp/framework_page)",
+      "Bash(ls /tmp/framework_page*)"
+    ]
+  }
+}
