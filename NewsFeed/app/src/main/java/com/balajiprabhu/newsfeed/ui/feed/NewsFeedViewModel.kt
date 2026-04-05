@@ -4,7 +4,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.balajiprabhu.newsfeed.data.model.Post
 import com.balajiprabhu.newsfeed.data.repository.FeedRepository
-import com.balajiprabhu.newsfeed.data.repository.FeedRepositoryImpl
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,11 +15,12 @@ import kotlinx.coroutines.launch
 
 data class NewsFeedViewState(
     val posts: List<Post> = emptyList(),
-    val isLoading: Boolean = false
+    val isLoading: Boolean = false,
+    val refreshError: Boolean = false
 )
 
 class NewsFeedViewModel(
-    private val feedRepository: FeedRepository = FeedRepositoryImpl()
+    private val feedRepository: FeedRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(NewsFeedViewState())
@@ -37,8 +37,11 @@ class NewsFeedViewModel(
                 .onEach { posts ->
                     _uiState.value = _uiState.value.copy(posts = posts, isLoading = false)
                 }
-                .catch { e ->
-                    _uiState.value = _uiState.value.copy(isLoading = false)
+                .catch { _ ->
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        refreshError = true
+                    )
                 }
                 .collect()
         }

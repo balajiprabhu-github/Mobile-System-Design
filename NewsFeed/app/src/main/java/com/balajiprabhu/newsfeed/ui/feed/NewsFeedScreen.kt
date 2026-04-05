@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Snackbar
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -32,18 +33,28 @@ fun NewsFeedScreen(
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-    if (uiState.isLoading) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator()
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (uiState.isLoading) {
+            CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = paddingValues,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(items = uiState.posts, key = { it.id }) { post ->
+                    PostCard(post = post)
+                }
+            }
         }
-    } else {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = paddingValues,
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            items(items = uiState.posts, key = { it.id }) { post ->
-                PostCard(post = post)
+
+        if (uiState.refreshError) {
+            Snackbar(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(16.dp)
+            ) {
+                Text("Could not refresh feed. Showing cached posts.")
             }
         }
     }

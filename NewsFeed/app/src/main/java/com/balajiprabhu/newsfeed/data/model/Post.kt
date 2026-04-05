@@ -5,5 +5,5 @@ data class Post(
     val authorName: String,
     val content: String,
     val likeCount: Int,
-    val timestamp: Long
+    val timeStamp: Long
 )
