@@ -7,15 +7,13 @@ import com.balajiprabhu.newsfeed.data.repository.FeedRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.onEach
-import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class NewsFeedViewState(
     val posts: List<Post> = emptyList(),
     val isLoading: Boolean = false,
+    val isRefreshing: Boolean = false,
     val refreshError: Boolean = false
 )
 
@@ -27,23 +25,34 @@ class NewsFeedViewModel(
     val uiState: StateFlow<NewsFeedViewState> = _uiState.asStateFlow()
 
     init {
-        loadFeed()
+        observeFeed()
+        refreshFeed()
     }
 
-    private fun loadFeed() {
+    private fun observeFeed() {
         viewModelScope.launch {
-            feedRepository.getFeed()
-                .onStart { _uiState.value = _uiState.value.copy(isLoading = true) }
-                .onEach { posts ->
-                    _uiState.value = _uiState.value.copy(posts = posts, isLoading = false)
-                }
-                .catch { _ ->
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        refreshError = true
+            _uiState.update { it.copy(isLoading = true) }
+            feedRepository.getFeed().collect { posts ->
+                _uiState.update {
+                    it.copy(
+                        posts = posts,
+                        isLoading = false
                     )
                 }
-                .collect()
+            }
+        }
+    }
+
+    fun refreshFeed() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isRefreshing = true, refreshError = false) }
+            val result = feedRepository.refreshFeed()
+            _uiState.update {
+                it.copy(
+                    isRefreshing = false,
+                    refreshError = result.isFailure
+                )
+            }
         }
     }
 }

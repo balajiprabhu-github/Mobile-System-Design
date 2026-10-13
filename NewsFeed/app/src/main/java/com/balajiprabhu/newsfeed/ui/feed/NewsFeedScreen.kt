@@ -34,7 +34,7 @@ fun NewsFeedScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     Box(modifier = Modifier.fillMaxSize()) {
-        if (uiState.isLoading) {
+        if (uiState.isLoading && uiState.posts.isEmpty()) {
             CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
         } else {
             LazyColumn(
