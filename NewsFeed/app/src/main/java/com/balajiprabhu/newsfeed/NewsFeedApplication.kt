@@ -1,25 +1,7 @@
 package com.balajiprabhu.newsfeed
 
 import android.app.Application
-import androidx.room.Room
-import com.balajiprabhu.newsfeed.data.local.database.NewsFeedDatabase
-import com.balajiprabhu.newsfeed.data.remote.NetworkClient
-import com.balajiprabhu.newsfeed.data.repository.FeedRepositoryImpl
+import dagger.hilt.android.HiltAndroidApp
 
-class NewsFeedApplication : Application() {
-
-    val database: NewsFeedDatabase by lazy {
-        Room.databaseBuilder(
-            applicationContext,
-            NewsFeedDatabase::class.java,
-            "news_feed_db"
-        ).build()
-    }
-
-    val feedRepository by lazy {
-        FeedRepositoryImpl(
-            postDao = database.postDao(),
-            apiService = NetworkClient.createApiService()
-        )
-    }
-}
+@HiltAndroidApp
+class NewsFeedApplication : Application()

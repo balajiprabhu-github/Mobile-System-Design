@@ -21,14 +21,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.balajiprabhu.newsfeed.data.model.Post
 
 @Composable
 fun NewsFeedScreen(
     paddingValues: PaddingValues = PaddingValues(),
-    viewModel: NewsFeedViewModel = viewModel()
+    viewModel: NewsFeedViewModel = hiltViewModel()
 ) {
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()

@@ -4,7 +4,7 @@ Personal study repo for senior+ Mobile System Design (MSD) interviews. Concepts 
 
 ## App Architecture & Roadmap
 - Rebuild app phase-by-phase per `.agents/plans/msd-news-feed-study-roadmap.md`. Do not implement ahead.
-- Tech stack: Kotlin, Jetpack Compose, ViewModel, Coroutines, Room (SSOT), manual DI (`NewsFeedApplication` + factories). No Hilt yet.
+- Tech stack: Kotlin, Jetpack Compose, ViewModel, Coroutines, Room (SSOT), Hilt DI.
 
 ## Coaching & Teaching
 - **Coaching mode** (when studying/quizzing): Prompt the user to recall/attempt first. Explain the "why" and trade-offs (e.g. cursor vs offset, LWW, cache eviction). Keep it to one concept at a time and tie directly to interview articulation.

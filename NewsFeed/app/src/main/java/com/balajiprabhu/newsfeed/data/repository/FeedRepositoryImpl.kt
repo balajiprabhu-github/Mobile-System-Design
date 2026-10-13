@@ -7,11 +7,12 @@ import com.balajiprabhu.newsfeed.data.model.Post
 import com.balajiprabhu.newsfeed.data.remote.api.NewsFeedApiService
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import javax.inject.Inject
 
 private const val CACHE_EXPIRY_TIME = 60 * 60 * 1000L
 private const val MAX_CACHE_SIZE = 200
 
-class FeedRepositoryImpl(
+class FeedRepositoryImpl @Inject constructor(
     private val postDao: PostDao,
     private val apiService: NewsFeedApiService
 ) : FeedRepository {
