@@ -57,4 +57,8 @@ fileignoreconfig:
   checksum: b2665ec02308da4e3477cf4f0a75e138571bccbd02a6400e5e840fe99a8eea84
 - filename: .agents/skills/edge-to-edge/SKILL.md
   checksum: 294b118829eb36e5ffa5f103863e4a75f924944eb0553b0bcd08e56f574dadfc
+- filename: docs/presentation.html
+  checksum: d89d4ef67f421a0e1ab1099d9aa084565f4a9f0a7cbdb900c33161272f17e477
+- filename: docs/index.html
+  checksum: 17e2c88ec170912ad45e0a7e333a7e3230aa07b761597837d9b1d164da894358
 version: "1.0"

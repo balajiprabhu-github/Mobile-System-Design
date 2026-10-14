@@ -1,0 +1,40 @@
+<svg viewBox="0 0 740 400" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="740" height="400" rx="16" fill="#0B0F19"/>
+  <rect x="1" y="1" width="738" height="398" rx="15" stroke="rgba(255,255,255,0.08)" stroke-width="2"/>
+
+  <!-- Title -->
+  <text x="30" y="42" fill="#F8FAFC" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="16" font-weight="700">Client Clock Skew &amp; Monotonic Time Synchronization</text>
+  <text x="30" y="62" fill="#94A3B8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12">Bridging mobile hardware boot counters with authoritative server UTC timestamps</text>
+
+  <!-- Problem: Wall Clock Track -->
+  <rect x="30" y="85" width="680" height="110" rx="12" fill="#1E293B" stroke="#F43F5E" stroke-width="1.5"/>
+  <text x="50" y="112" fill="#F43F5E" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700">WALL CLOCK</text>
+  <text x="145" y="112" fill="#94A3B8" font-family="monospace" font-size="11">• Date.now() / DateTime.now() / currentTimeMillis()</text>
+
+  <!-- Timeline Line with Spike at the right side -->
+  <line x1="50" y1="150" x2="430" y2="150" stroke="#475569" stroke-width="2"/>
+  <path d="M 430 150 L 490 125 L 530 162 L 560 150 H 680" stroke="#F43F5E" stroke-width="2.5" fill="none"/>
+  <circle cx="490" cy="125" r="5" fill="#F43F5E"/>
+  
+  <!-- Callout (positioned cleanly above spike) -->
+  <rect x="420" y="100" width="140" height="18" rx="4" fill="rgba(244, 63, 94, 0.2)" stroke="rgba(244, 63, 94, 0.5)"/>
+  <text x="490" y="113" fill="#FCA5A5" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="9" font-weight="600" text-anchor="middle">User adjusts clock (+1y)</text>
+  <text x="50" y="180" fill="#94A3B8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="10">⚠️ Volatile: Can jump forward or backward at any time</text>
+
+  <!-- Solution: Monotonic Clock Track -->
+  <rect x="30" y="210" width="680" height="110" rx="12" fill="#1E293B" stroke="#34D399" stroke-width="1.5"/>
+  <text x="50" y="237" fill="#34D399" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700">MONOTONIC CLOCK</text>
+  <text x="185" y="237" fill="#94A3B8" font-family="monospace" font-size="11">• performance.now() / Stopwatch / elapsedRealtime()</text>
+
+  <!-- Steady Line -->
+  <line x1="50" y1="275" x2="680" y2="275" stroke="#475569" stroke-width="2"/>
+  <line x1="50" y1="275" x2="680" y2="275" stroke="#34D399" stroke-width="3"/>
+  <text x="50" y="305" fill="#94A3B8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="10">✅ Monotonic: Hardware crystal ticks at constant rate since boot (incl. deep sleep)</text>
+
+  <!-- Math Bridge Formula -->
+  <rect x="30" y="335" width="680" height="45" rx="8" fill="#0F172A" stroke="rgba(56, 189, 248, 0.3)" stroke-width="1"/>
+  <text x="370" y="362" fill="#38BDF8" font-family="monospace" font-size="12" font-weight="700" text-anchor="middle">
+    CurrentServerTime = MonotonicClock + (ServerDateUtc - InitialMonotonicClock)
+  </text>
+</svg>

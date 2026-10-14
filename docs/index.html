@@ -1,0 +1,1021 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mobile Cache Eviction, Offline Sync &amp; Clock-Skew Resiliency</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #0a0e17;
+      --bg-surface: #111827;
+      --bg-card: rgba(17, 24, 39, 0.75);
+      --border-color: rgba(255, 255, 255, 0.08);
+      --border-highlight: rgba(56, 189, 248, 0.3);
+      --accent-cyan: #38bdf8;
+      --accent-indigo: #818cf8;
+      --accent-emerald: #34d399;
+      --accent-amber: #fbbf24;
+      --accent-rose: #f43f5e;
+      --accent-purple: #c084fc;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background: var(--bg-primary);
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      overflow: hidden;
+      height: 100vh;
+      width: 100vw;
+      user-select: none;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .ambient-glow {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 80vw;
+      height: 80vh;
+      background: radial-gradient(circle, rgba(56, 189, 248, 0.06) 0%, rgba(129, 140, 248, 0.03) 40%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .deck-container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      z-index: 1;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 36px;
+      border-bottom: 1px solid var(--border-color);
+      background: rgba(10, 14, 23, 0.85);
+      backdrop-filter: blur(12px);
+      z-index: 10;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 700;
+      font-size: 0.95rem;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--accent-cyan);
+    }
+
+    .header-controls {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .timer-pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      background: rgba(255, 255, 255, 0.04);
+      padding: 6px 14px;
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
+    }
+
+    .timer-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent-emerald);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    .slide-arena {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .slide {
+      position: absolute;
+      inset: 0;
+      padding: 36px 64px 20px;
+      display: flex;
+      flex-direction: column;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateX(40px) scale(0.98);
+      transition: opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1), transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .slide.active {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateX(0) scale(1);
+    }
+
+    .slide-tag {
+      display: inline-block;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--accent-cyan);
+      margin-bottom: 6px;
+    }
+
+    .slide-title {
+      font-size: 2.2rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 6px;
+      background: linear-gradient(135deg, #ffffff 30%, #94a3b8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .slide-subtitle {
+      font-size: 1.02rem;
+      color: var(--text-muted);
+      max-width: 850px;
+      line-height: 1.5;
+      margin-bottom: 20px;
+    }
+
+    .content-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 28px;
+      flex: 1;
+      align-items: center;
+      min-height: 0;
+    }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 22px;
+      backdrop-filter: blur(16px);
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
+    }
+
+    .card-title {
+      font-size: 1.12rem;
+      font-weight: 700;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--text-main);
+    }
+
+    .card p, .card li {
+      color: var(--text-muted);
+      font-size: 0.92rem;
+      line-height: 1.6;
+    }
+
+    .card ul {
+      list-style-type: none;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .card li {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+
+    .card li::before {
+      content: "•";
+      color: var(--accent-cyan);
+      font-size: 1.3rem;
+      line-height: 1;
+    }
+
+    .badge-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      flex-shrink: 0;
+    }
+
+    .badge-cyan { background: rgba(56, 189, 248, 0.15); color: var(--accent-cyan); }
+    .badge-indigo { background: rgba(129, 140, 248, 0.15); color: var(--accent-indigo); }
+    .badge-emerald { background: rgba(52, 211, 153, 0.15); color: var(--accent-emerald); }
+    .badge-rose { background: rgba(244, 63, 94, 0.15); color: var(--accent-rose); }
+    .badge-amber { background: rgba(251, 191, 36, 0.15); color: var(--accent-amber); }
+    .badge-purple { background: rgba(192, 132, 252, 0.15); color: var(--accent-purple); }
+
+    pre {
+      background: #080c14;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 12px;
+      padding: 14px;
+      font-family: var(--font-mono);
+      font-size: 0.83rem;
+      line-height: 1.5;
+      overflow-x: auto;
+      color: #e2e8f0;
+    }
+
+    .code-keyword { color: #c084fc; font-weight: 600; }
+    .code-func { color: #38bdf8; }
+    .code-comment { color: #64748b; font-style: italic; }
+    .code-val { color: #34d399; }
+    .code-type { color: #fbbf24; }
+
+    .diagram-container {
+      background: rgba(8, 12, 20, 0.85);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      min-height: 300px;
+      box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.4);
+    }
+
+    .diagram-container svg {
+      width: 100%;
+      height: 100%;
+      max-height: 380px;
+    }
+
+    .notes-drawer {
+      position: absolute;
+      bottom: 64px;
+      left: 50%;
+      transform: translateX(-50%) translateY(120%);
+      width: 85%;
+      max-width: 900px;
+      background: rgba(15, 23, 42, 0.95);
+      backdrop-filter: blur(20px);
+      border: 1px solid var(--border-highlight);
+      border-radius: 14px;
+      padding: 16px 24px;
+      z-index: 50;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.6);
+      transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .notes-drawer.open {
+      transform: translateX(-50%) translateY(0);
+    }
+
+    .notes-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .notes-title {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      font-family: var(--font-mono);
+      letter-spacing: 0.08em;
+      color: var(--accent-cyan);
+      font-weight: 700;
+    }
+
+    .notes-body {
+      font-size: 0.9rem;
+      color: #e2e8f0;
+      line-height: 1.5;
+    }
+
+    footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 36px;
+      border-top: 1px solid var(--border-color);
+      background: rgba(10, 14, 23, 0.85);
+      backdrop-filter: blur(12px);
+      z-index: 10;
+    }
+
+    .nav-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .nav-btn:hover {
+      background: rgba(56, 189, 248, 0.15);
+      border-color: var(--accent-cyan);
+      color: #fff;
+    }
+
+    .nav-btn.primary {
+      background: var(--accent-cyan);
+      color: #0f172a;
+      font-weight: 700;
+      border-color: var(--accent-cyan);
+    }
+
+    .nav-btn.primary:hover {
+      background: #7dd3fc;
+    }
+
+    .progress-track {
+      flex: 1;
+      max-width: 400px;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 999px;
+      margin: 0 24px;
+      overflow: hidden;
+    }
+
+    .progress-bar {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--accent-cyan), var(--accent-indigo));
+      transition: width 0.3s ease;
+    }
+
+    .slide-counter {
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    .kbd {
+      background: rgba(255, 255, 255, 0.1);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      margin: 0 2px;
+      color: #cbd5e1;
+    }
+
+    .compact-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.86rem;
+    }
+
+    .compact-table th {
+      text-align: left;
+      padding: 8px 10px;
+      color: var(--accent-cyan);
+      font-size: 0.76rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .compact-table td {
+      padding: 8px 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      color: var(--text-muted);
+    }
+
+    .compact-table tr:hover td {
+      background: rgba(255, 255, 255, 0.02);
+      color: var(--text-main);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="ambient-glow"></div>
+
+  <div class="deck-container">
+    <header>
+      <div class="brand">
+        <span>Mobile System Design</span>
+      </div>
+      <div class="header-controls">
+        <div class="timer-pill" id="sessionTimer">
+          <div class="timer-dot"></div>
+          <span id="timerDisplay">00:00</span>
+        </div>
+        <button class="nav-btn" id="toggleNotesBtn" title="Press 'N' to toggle notes">
+          📝 Notes [<span class="kbd">N</span>]
+        </button>
+      </div>
+    </header>
+
+    <main class="slide-arena">
+
+      <!-- SLIDE 1: Title -->
+      <section class="slide active" id="slide-1" data-notes="Welcome! Today we are doing a deep-dive into mobile local storage architecture, cache lifecycle, and distributed time synchronization. These principles are universal whether your app is written in Flutter, React Native, or Native Android/iOS.">
+        <span class="slide-tag">Architecture &amp; Resilience</span>
+        <h1 class="slide-title">Mobile Cache Eviction, Offline Sync &amp; Clock Skew</h1>
+        <p class="slide-subtitle">Building bounded local storage, tamper-proof timekeeping, and conflict-safe offline mutation pipelines across mobile platforms.</p>
+
+        <div class="content-grid" style="grid-template-columns: 1fr 1fr;">
+          <div class="card" style="display: flex; flex-direction: column; justify-content: center; gap: 18px;">
+            <div style="display: flex; gap: 14px; align-items: flex-start;">
+              <div class="badge-icon badge-cyan">1</div>
+              <div>
+                <strong style="color: #fff; font-size: 1.02rem;">Two-Tier Storage Bounding</strong>
+                <p>Preventing unbounded SQLite bloat via hybrid TTL + hard count-cap executed at write-time.</p>
+              </div>
+            </div>
+            <div style="display: flex; gap: 14px; align-items: flex-start;">
+              <div class="badge-icon badge-indigo">2</div>
+              <div>
+                <strong style="color: #fff; font-size: 1.02rem;">The 'Lying Device Clock' Problem</strong>
+                <p>Why wall-clock time causes catastrophic cache wipes, and how monotonic clocks bridge with universal UTC.</p>
+              </div>
+            </div>
+            <div style="display: flex; gap: 14px; align-items: flex-start;">
+              <div class="badge-icon badge-emerald">3</div>
+              <div>
+                <strong style="color: #fff; font-size: 1.02rem;">Offline Mutations &amp; Last-Write-Wins (LWW)</strong>
+                <p>How tamper-proof time powers idempotent retries (Snowflake requestIds) and conflict resolution.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(56, 189, 248, 0.2); display: flex; flex-direction: column; justify-content: center; gap: 14px;">
+            <div class="card-title">
+              <span class="badge-icon badge-amber">📱</span> Universal Mobile Stacks
+            </div>
+            <p>Every offline-first client application shares these identical architectural boundaries:</p>
+            <ul>
+              <li><strong>Flutter:</strong> Drift / Hive / Isar, Dio Interceptors, Stopwatch</li>
+              <li><strong>React Native:</strong> WatermelonDB / SQLite, Axios, performance.now()</li>
+              <li><strong>Native Android / iOS:</strong> Room / CoreData, OkHttp / URLSession, elapsedRealtime()</li>
+            </ul>
+            <p style="font-size: 0.85rem; color: #38bdf8; margin-top: 4px;">
+              The storage constraints and distributed time math are universal across platforms.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- SLIDE 2: Unbounded Local Storage -->
+      <section class="slide" id="slide-2" data-notes="Why is cache eviction so critical on mobile? On servers, storage is practically unlimited. On mobile, devices face aggressive OS low-storage triggers. In SQLite, as tables grow into tens of thousands of rows, indexing, sorting (ORDER BY timeStamp DESC), and reactive stream emissions degrade. Explain why LRU during feed scrolling is a classic trap: updating view timestamps during 120fps scrolling causes disk thrashing!">
+        <span class="slide-tag">Storage Strategy • Mobile Constraints</span>
+        <h2 class="slide-title">The Three Eviction Policies</h2>
+        <p class="slide-subtitle">Why unbounded caching breaks on mobile, and the trade-offs of each eviction strategy.</p>
+
+        <div class="content-grid">
+          <div class="card">
+            <div class="card-title"><span class="badge-icon badge-rose">⚠️</span> Why Eviction is Mandatory</div>
+            <ul>
+              <li><strong>OS Low-Storage Purges:</strong> iOS and Android actively monitor app disk quotas. Apps that hog storage trigger OS prompts asking users to uninstall.</li>
+              <li><strong>Query &amp; Index Degradation:</strong> Unbounded local tables slow down queries like <code>ORDER BY timeStamp DESC</code>, increasing memory and query latency.</li>
+              <li><strong>Stale Feed Decay:</strong> Feeds lose relevance quickly. Showing 3-week-old items as 'recent' degrades offline user experience.</li>
+            </ul>
+          </div>
+
+          <div class="card">
+            <div class="card-title"><span class="badge-icon badge-indigo">⚖️</span> Policy Comparison</div>
+            <table class="compact-table">
+              <thead>
+                <tr>
+                  <th>Policy</th>
+                  <th>Pros</th>
+                  <th>Mobile Drawback</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong style="color:#fff">TTL (Time-To-Live)</strong></td>
+                  <td>Predictable freshness</td>
+                  <td>Doesn't stop rapid burst storage bloat</td>
+                </tr>
+                <tr>
+                  <td><strong style="color:#fff">Count / Size Cap</strong></td>
+                  <td>Guarantees hard DB bounds</td>
+                  <td>Needs sorting metric (FIFO vs Timestamp)</td>
+                </tr>
+                <tr>
+                  <td><strong style="color:#fff">LRU (By View)</strong></td>
+                  <td>Keeps favorite items</td>
+                  <td><span style="color:var(--accent-rose)">Write-thrashing on scroll!</span></td>
+                </tr>
+              </tbody>
+            </table>
+            <p style="margin-top: 14px; font-size: 0.85rem; color: #38bdf8;">
+              💡 <strong>Takeaway:</strong> Never use LRU on feed items—writing timestamps during scroll kills 60/120Hz frame rates. Use <em>Timeline FIFO</em>.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- SLIDE 3: Architecture Diagram (Eviction) -->
+      <section class="slide" id="slide-3" data-notes="Here is our recommended Two-Tier Hybrid Eviction architecture. Point out the write-time trigger: right after inserting fresh network posts, we run TTL eviction, then size-cap eviction. Emphasize why write-time beats read-time: read-time would delay app launch rendering! Also highlight Foreign Key CASCADE delete: child attachments are purged automatically.">
+        <span class="slide-tag">Architecture • Data Flow</span>
+        <h2 class="slide-title">Two-Tier Hybrid Eviction Architecture</h2>
+        <p class="slide-subtitle">Executing eviction at <strong>write-time</strong> so the launch read-path stays instant and 60fps smooth.</p>
+
+        <div class="content-grid" style="grid-template-columns: 1.3fr 0.7fr;">
+          <div class="diagram-container">
+            <svg viewBox="0 0 620 340" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="20" y="140" width="130" height="60" rx="12" fill="#1e293b" stroke="#38bdf8" stroke-width="2"/>
+              <text x="85" y="165" fill="#38bdf8" font-family="Inter" font-size="12" font-weight="700" text-anchor="middle">Network Payload</text>
+              <text x="85" y="182" fill="#94a3b8" font-family="Inter" font-size="10" text-anchor="middle">Fresh Feed Items</text>
+
+              <path d="M150 170 H 190" stroke="#38bdf8" stroke-width="2" marker-end="url(#arrow)"/>
+
+              <rect x="195" y="30" width="400" height="280" rx="16" fill="#0f172a" stroke="rgba(255,255,255,0.1)" stroke-width="1.5"/>
+              <text x="215" y="60" fill="#f8fafc" font-family="Inter" font-size="14" font-weight="700">Local Database (Room / Drift / SQLite)</text>
+
+              <rect x="215" y="80" width="360" height="50" rx="8" fill="#1e293b" stroke="#34d399" stroke-width="1.5"/>
+              <text x="235" y="103" fill="#34d399" font-family="JetBrains Mono" font-size="11" font-weight="700">1. INSERT OR REPLACE</text>
+              <text x="235" y="119" fill="#94a3b8" font-family="Inter" font-size="10">Tag with cachedAt = currentServerTimeMillis()</text>
+
+              <rect x="215" y="145" width="360" height="50" rx="8" fill="#1e293b" stroke="#fbbf24" stroke-width="1.5"/>
+              <text x="235" y="168" fill="#fbbf24" font-family="JetBrains Mono" font-size="11" font-weight="700">2. TTL EVICTION</text>
+              <text x="235" y="184" fill="#94a3b8" font-family="Inter" font-size="10">DELETE FROM posts WHERE cachedAt &lt; (now - 24h)</text>
+
+              <rect x="215" y="210" width="360" height="50" rx="8" fill="#1e293b" stroke="#f43f5e" stroke-width="1.5"/>
+              <text x="235" y="233" fill="#f43f5e" font-family="JetBrains Mono" font-size="11" font-weight="700">3. HARD SIZE CAP (MAX 200)</text>
+              <text x="235" y="249" fill="#94a3b8" font-family="Inter" font-size="10">IF count &gt; 200 DELETE oldest posts (LIMIT excess)</text>
+
+              <path d="M480 260 V 285 H 320" stroke="#f43f5e" stroke-dasharray="3 3"/>
+              <text x="310" y="289" fill="#f43f5e" font-family="Inter" font-size="9" text-anchor="end">CASCADE: Auto-purges child attachments</text>
+
+              <defs>
+                <marker id="arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#38bdf8"/>
+                </marker>
+              </defs>
+            </svg>
+          </div>
+
+          <div class="card">
+            <div class="card-title"><span class="badge-icon badge-cyan">💡</span> Why Write-Time?</div>
+            <ul style="gap: 16px;">
+              <li><strong>Zero UI Blocking:</strong> Launch read queries render instantly without delay. We never do heavy DB pruning during initial screen presentation.</li>
+              <li><strong>Natural Boundary:</strong> We prune immediately upon adding fresh pages, keeping storage strictly bounded.</li>
+              <li><strong>Background I/O:</strong> Executes on background coroutine/async workers, off the UI thread.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- SLIDE 4: Database Optimization & Indexing -->
+      <section class="slide" id="slide-4" data-notes="Here is an important concept that gets overlooked: SQLite indexing and VACUUM. If we run 'DELETE FROM posts WHERE cachedAt < cutoff', does SQLite do a full table scan? Yes, unless cachedAt is indexed! Also explain SQLite auto-vacuum: deleting rows leaves free pages in the DB file; auto_vacuum or periodic vacuum reclaims physical disk space.">
+        <span class="slide-tag">Database Deep Dive • SQLite Optimization</span>
+        <h2 class="slide-title">Indices, Cascades &amp; Storage Reclamation</h2>
+        <p class="slide-subtitle">Optimizing SQLite execution plans and reclaiming physical disk space on mobile devices.</p>
+
+        <div class="content-grid">
+          <div class="card">
+            <div class="card-title"><span class="badge-icon badge-emerald">⚡</span> Indexing Strategy</div>
+            <pre><code><span class="code-comment">-- Essential composite/single indices:</span>
+<span class="code-keyword">CREATE INDEX</span> idx_posts_timestamp 
+<span class="code-keyword">ON</span> posts(timeStamp <span class="code-keyword">DESC</span>);
+
+<span class="code-keyword">CREATE INDEX</span> idx_posts_cached_at 
+<span class="code-keyword">ON</span> posts(cachedAt);</code></pre>
+            <ul style="margin-top: 14px;">
+              <li><strong>Avoid Full Table Scans:</strong> Without an index on <code>cachedAt</code>, every write-time TTL check scans every row in SQLite!</li>
+              <li><strong>Fast Feed Sorting:</strong> Indexing <code>timeStamp DESC</code> makes UI queries instantaneous.</li>
+              <li><strong>Foreign Key Cascades:</strong> Declaring <code>FOREIGN KEY (postId) REFERENCES posts(id) ON DELETE CASCADE</code> cleans up child tables automatically.</li>
+            </ul>
+          </div>
+
+          <div class="card">
+            <div class="card-title"><span class="badge-icon badge-amber">🧹</span> Reclaiming Deleted Space</div>
+            <ul>
+              <li>
+                <div>
+                  <strong style="color:#fff">SQLite Free-Page Trap</strong><br>
+                  <span style="font-size:0.9rem;">When you execute <code>DELETE FROM posts</code>, SQLite does <em>not</em> shrink the <code>.db</code> file on disk! It marks pages as 'free' for future writes.</span>
+                </div>
+              </li>
+              <li>
+                <div>
+                  <strong style="color:#fff">PRAGMA auto_vacuum = INCREMENTAL</strong><br>
+                  <span style="font-size:0.9rem;">Configuring incremental auto-vacuum allows your database to return freed storage pages back to the operating system during idle maintenance.</span>
+                </div>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- SLIDE 5: Physical Disk Gap: Metadata vs Blobs -->
+      <section class="slide" id="slide-5" data-notes="Highlight the critical distinction between metadata pruning and physical media pruning. Deleting a row in SQLite or Drift only deletes the record—it does NOT delete the 2MB JPEG cached on disk by Coil, Glide, or CachedNetworkImage! Explain how DiskLruCache handles blobs and why background jobs (WorkManager) should run during idle/charging for orphan cleanup.">
+        <span class="slide-tag">Media &amp; Cache Bloat • The Blob Gap</span>
+        <h2 class="slide-title">The Physical Disk Gap: Metadata vs. Media</h2>
+        <p class="slide-subtitle">Why evicting a database row doesn't clean up the images and videos taking up real disk space.</p>
+
+        <div class="content-grid">
+          <div class="card">
+            <div class="card-title"><span class="badge-icon badge-rose">📦</span> The Two Storage Layers</div>
+            <ul>
+              <li>
+                <div>
+                  <strong style="color:#fff">Structured Metadata (SQLite / Drift):</strong><br>
+                  <span style="font-size:0.9rem;">Stores text, IDs, timestamps, and image URLs. Usually takes a few megabytes (~10–20MB for hundreds of posts).</span>
+                </div>
+              </li>
+              <li>
+                <div>
+                  <strong style="color:#fff">Binary Media Blobs (Disk Cache):</strong><br>
+                  <span style="font-size:0.9rem;">Stored in <code>cacheDir</code> by image loaders (Coil, CachedNetworkImage, FastImage). This is what consumes <strong>500MB–2GB</strong> of disk!</span>
+                </div>
+              </li>
+            </ul>
+            <p style="margin-top: 12px; font-size: 0.85rem; color: #f43f5e;">
+              ⚠️ Deleting a database row leaves the downloaded image blob orphaned in the disk cache!
+            </p>
+          </div>
+
+          <div class="card">
+            <div class="card-title"><span class="badge-icon badge-cyan">🛠️</span> Two-Tier Media Eviction Solution</div>
+            <ul>
+              <li>
+                <div>
+                  <strong style="color:#fff">1. Image Loader DiskLruCache</strong><br>
+                  <span style="font-size:0.9rem;">Configure strict byte-size caps on Coil / Dio Cache / FastImage (e.g. <code>maxSize(150.MB)</code>). The image loader handles LRU blob eviction automatically.</span>
+                </div>
+              </li>
+              <li>
+                <div>
+                  <strong style="color:#fff">2. Background Idle Cleanup (WorkManager / BGTask)</strong><br>
+                  <span style="font-size:0.9rem;">Schedule periodic maintenance running only when:
+                  <br>• <code>requiresDeviceIdle()</code>
+                  <br>• <code>requiresCharging()</code>
+                  <br>Cleans temp files, video chunks, and orphan assets without draining battery.</span>
+                </div>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- SLIDE 6: The Clock Skew Problem -->
+      <section class="slide" id="slide-6" data-notes="Now we transition to the time problem. What timestamp do we use for cachedAt? If we use post.createdAt, fresh posts fetched today will be deleted instantly if the user posted it 2 days ago! But if we use device wall-clock time, user clock tampering or timezone changes break everything. Use the Highway KM 0 and Bike Odometer analogies here to make it click.">
+        <span class="slide-tag">The Hidden Bug • Time Integrity</span>
+        <h2 class="slide-title">The "Lying Device Clock" Dilemma</h2>
+        <p class="slide-subtitle">Why device wall-clock time (<code>Date.now()</code> / <code>DateTime.now()</code>) is dangerous for cache eviction.</p>
+
+        <div class="content-grid">
+          <div class="card">
+            <div class="card-title"><span class="badge-icon badge-rose">💥</span> Failure Scenario</div>
+            <p style="margin-bottom: 12px;">Suppose cache TTL is <strong>1 hour</strong>. What happens if:</p>
+            <ul>
+              <li><strong>User travels or sets clock 1 day ahead:</strong>  
+                Wall clock jumps +24h. The next eviction query deletes <em>100% of cached posts</em>. Offline mode is wiped!</li>
+              <li><strong>User sets clock back:</strong>  
+                Cached items are marked in the past; stale posts never expire, consuming disk indefinitely.</li>
+              <li><strong>Ranked feed returns older post:</strong>  
+                If we mistakenly used <code>serverCreatedAt</code> instead of cache arrival time, the post is deleted on insertion!</li>
+            </ul>
+          </div>
+
+          <div class="card">
+            <div class="card-title"><span class="badge-icon badge-emerald">🛣️</span> Real-World Analogies</div>
+            <ul>
+              <li>
+                <div>
+                  <strong style="color:#fff">The Unix Epoch = KM 0 Stone</strong><br>
+                  <span style="font-size:0.9rem;">Just like National Highways start at KM 0 at the city center, Epoch (Jan 1, 1970 UTC) is the KM 0 of computing. Timestamps are simply the kilometer reading.</span>
+                </div>
+              </li>
+              <li>
+                <div>
+                  <strong style="color:#fff">Monotonic Clock = Bike Odometer</strong><br>
+                  <span style="font-size:0.9rem;">When a brand new bike leaves the factory, its odometer starts at 0. You cannot fast-forward it in Settings; it only counts forward at a steady, reliable pace.</span>
+                </div>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- SLIDE 7: Two Clocks in Mobile -->
+      <section class="slide" id="slide-7" data-notes="Explain the difference between mobile's two clocks: Wall Clock vs Monotonic Clock. Monotonic clock never jumps, but its zero point is device boot time, not Jan 1 1970. How do we bridge them? Clock Skew math! Walk through: skew = serverUtc - monotonicClock. Current time = monotonicClock + skew. Works identically in Flutter, React Native, and Native.">
+        <span class="slide-tag">Deep Dive • Mobile OS Internals</span>
+        <h2 class="slide-title">The Two Clocks in Mobile</h2>
+        <p class="slide-subtitle">Bridging device hardware boot stopwatches with universal UTC time.</p>
+
+        <div class="content-grid" style="grid-template-columns: 1.15fr 0.85fr;">
+          <div class="diagram-container">
+            <svg viewBox="0 0 560 320" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="15" y="15" width="530" height="135" rx="12" fill="#1e293b" stroke="#f43f5e" stroke-width="1.5"/>
+              <text x="32" y="42" fill="#f43f5e" font-family="Inter" font-size="12" font-weight="700">WALL CLOCK</text>
+              <text x="125" y="42" fill="#94a3b8" font-family="JetBrains Mono" font-size="10">• Date.now() / DateTime.now() / currentTimeMillis()</text>
+
+              <line x1="32" y1="92" x2="330" y2="92" stroke="#475569" stroke-width="2"/>
+              <path d="M 330 92 L 390 62 L 440 108 L 470 92 H 525" stroke="#f43f5e" stroke-width="2.5" fill="none"/>
+              <circle cx="390" cy="62" r="4.5" fill="#f43f5e"/>
+              
+              <rect x="320" y="32" width="140" height="20" rx="4" fill="rgba(244, 63, 94, 0.2)" stroke="rgba(244, 63, 94, 0.5)"/>
+              <text x="390" y="46" fill="#fca5a5" font-family="Inter" font-size="9" font-weight="600" text-anchor="middle">User adjusts clock (+1y)</text>
+              
+              <text x="32" y="128" fill="#94a3b8" font-family="Inter" font-size="10">⚠️ Volatile: Can jump forward or backward at any time</text>
+
+              <rect x="15" y="165" width="530" height="135" rx="12" fill="#1e293b" stroke="#34d399" stroke-width="1.5"/>
+              <text x="32" y="192" fill="#34d399" font-family="Inter" font-size="12" font-weight="700">MONOTONIC CLOCK</text>
+              <text x="165" y="192" fill="#94a3b8" font-family="JetBrains Mono" font-size="10">• performance.now() / Stopwatch / elapsedRealtime()</text>
+
+              <line x1="32" y1="242" x2="525" y2="242" stroke="#475569" stroke-width="2"/>
+              <line x1="32" y1="242" x2="525" y2="242" stroke="#34d399" stroke-width="3"/>
+              
+              <text x="32" y="278" fill="#94a3b8" font-family="Inter" font-size="10">✅ Monotonic: Hardware crystal ticks at constant rate since boot (incl. deep sleep)</text>
+            </svg>
+          </div>
+
+          <div class="card">
+            <div class="card-title"><span class="badge-icon badge-indigo">📐</span> The Clock Skew Formula</div>
+            <p style="margin-bottom: 12px;">We store a single thread-safe offset:</p>
+            <pre><code><span class="code-comment">// 1. On server response:</span>
+<span class="code-keyword">val</span> skew = serverUtc - monotonicClock
+
+<span class="code-comment">// 2. Anytime we need "Now":</span>
+<span class="code-keyword">fun</span> <span class="code-func">now</span>() = monotonicClock + skew</code></pre>
+            <ul style="margin-top: 14px;">
+              <li><strong>Tamper-Proof:</strong> User changing system clock by 5 years does not change monotonic time.</li>
+              <li><strong>Zero Drift:</strong> Advances with hardware crystal precision.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- SLIDE 8: Piggyback Time Sync via HTTP Interceptors -->
+      <section class="slide" id="slide-8" data-notes="Here is how we implement this pattern. Point out that HTTP interceptors exist in every tech stack: Dio in Flutter, Axios in React Native, OkHttp in Android. Every response includes a standard HTTP Date header. Extracting it gives free time sync with zero extra battery or NTP overhead.">
+        <span class="slide-tag">Implementation • Clean Architecture</span>
+        <h2 class="slide-title">Piggyback Time Sync via HTTP Interceptor</h2>
+        <p class="slide-subtitle">Zero dedicated NTP requests. Zero battery drain. Free time sync with every API response.</p>
+
+        <div class="content-grid">
+          <div class="card">
+            <div class="card-title"><span class="badge-icon badge-cyan">1</span> HTTP Interceptor Pattern</div>
+            <pre><code><span class="code-comment">// Works in OkHttp / Dio / Axios</span>
+<span class="code-keyword">fun</span> <span class="code-func">onResponse</span>(response: <span class="code-type">Response</span>) {
+    <span class="code-keyword">val</span> serverDate = response.headers[<span class="code-val">"Date"</span>]
+    <span class="code-keyword">if</span> (serverDate != <span class="code-keyword">null</span>) {
+        timeProvider.updateServerTime(
+            parseDate(serverDate).time
+        )
+    }
+}</code></pre>
+            <p style="margin-top: 12px; font-size: 0.85rem; color: #94a3b8;">
+              Runs transparently on every network request your app already makes.
+            </p>
+          </div>
+
+          <div class="card">
+            <div class="card-title"><span class="badge-icon badge-emerald">2</span> Repository Usage</div>
+            <pre><code><span class="code-keyword">class</span> <span class="code-type">FeedRepository</span>(
+    <span class="code-keyword">private val</span> localDb: <span class="code-type">PostDao</span>,
+    <span class="code-keyword">private val</span> api: <span class="code-type">FeedApiService</span>,
+    <span class="code-keyword">private val</span> timeProvider: <span class="code-type">TimeProvider</span>
+) {
+    <span class="code-keyword">suspend fun</span> <span class="code-func">refreshFeed</span>() {
+        <span class="code-keyword">val</span> now = timeProvider.currentTimeMillis()
+        localDb.insert(posts, cachedAt = now)
+        localDb.deleteOlderThan(now - CACHE_EXPIRY)
+    }
+}</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- SLIDE 9: Offline Mutations & LWW -->
+      <section class="slide" id="slide-9" data-notes="This is the deepest distributed systems topic in mobile: Offline writes, idempotency, and conflict resolution. When a user likes or posts while in an elevator, we need: 1. Idempotency Key (Snowflake requestId: timestamp + device id) so retries don't create duplicate likes. 2. Last-Write-Wins (LWW) conflict resolution: if User unlikes on Device A and likes on Device B, the server accepts the mutation with higher timestamp. This is why having true server-synchronized time on the client is critical!">
+        <span class="slide-tag">Distributed Systems • Offline Mutations</span>
+        <h2 class="slide-title">Offline Mutations, Idempotency &amp; LWW</h2>
+        <p class="slide-subtitle">How tamper-proof time powers Last-Write-Wins (LWW) and eliminates duplicate mutation retries.</p>
+
+        <div class="content-grid">
+          <div class="card">
+            <div class="card-title"><span class="badge-icon badge-purple">🔑</span> Idempotency via Snowflake <code>requestId</code></div>
+            <p style="margin-bottom: 12px;">Mobile connections drop mid-flight. When the client retries, how does the server know it's not a duplicate?</p>
+            <pre><code><span class="code-comment">// Snowflake ID = [41-bit Timestamp] + [10-bit Device ID] + [12-bit Sequence]</span>
+<span class="code-keyword">data class</span> <span class="code-type">PostInteractionRequest</span>(
+    <span class="code-keyword">val</span> requestId: <span class="code-type">String</span>, <span class="code-comment">// Idempotency Key</span>
+    <span class="code-keyword">val</span> action: <span class="code-type">String</span>     <span class="code-comment">// "LIKE", "UNLIKE"</span>
+)</code></pre>
+            <ul style="margin-top: 12px;">
+              <li><strong>Safe Retries:</strong> If the network drops before receiving the response, retrying with the same <code>requestId</code> guarantees the server executes the mutation exactly once.</li>
+            </ul>
+          </div>
+
+          <div class="card">
+            <div class="card-title"><span class="badge-icon badge-amber">⚔️</span> Conflict Resolution: Last-Write-Wins</div>
+            <ul>
+              <li>
+                <div>
+                  <strong style="color:#fff">The Multi-Device Race</strong><br>
+                  <span style="font-size:0.9rem;">User unlikes a post on Device A (offline), then likes on Device B (online). Device A reconnects 10 minutes later. Which write wins?</span>
+                </div>
+              </li>
+              <li>
+                <div>
+                  <strong style="color:#fff">Why Time Synchronization is Crucial</strong><br>
+                  <span style="font-size:0.9rem;">In a Last-Write-Wins (LWW) system, the server accepts the mutation with the highest timestamp. If Device A had a tampered wall clock (set to 2030), its stale offline unlike would overwrite Device B forever! Server-synced monotonic time prevents this catastrophic conflict.</span>
+                </div>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- SLIDE 10: Key Takeaways & Questions -->
+      <section class="slide" id="slide-10" data-notes="Wrap up with these 4 golden rules of thumb for developers across Flutter, React Native, and Android. 1. Always bound local storage with hybrid TTL + hard count cap at write-time. 2. Never use LRU on feed scroll. 3. Never trust wall clock for local cache logic. 4. Use client-generated idempotency keys (requestId) for all mutations. Open for questions!">
+        <span class="slide-tag">Summary • Rules of Thumb</span>
+        <h2 class="slide-title">Key Takeaways for Developers</h2>
+        <p class="slide-subtitle">Four production rules of thumb to apply across mobile applications.</p>
+
+        <div class="content-grid" style="grid-template-columns: 1.1fr 0.9fr;">
+          <div class="card" style="display:flex; flex-direction:column; gap:14px;">
+            <div style="display: flex; gap: 12px; align-items: flex-start;">
+              <span class="badge-icon badge-cyan">1</span>
+              <div>
+                <strong style="color:#fff;">Enforce Two-Tier Hybrid Eviction</strong>
+                <p>Run TTL first to discard stale items, then apply a hard count-cap to bound local database size. Trigger at <strong>write-time</strong> so app launch reads stay instant.</p>
+              </div>
+            </div>
+
+            <div style="display: flex; gap: 12px; align-items: flex-start;">
+              <span class="badge-icon badge-indigo">2</span>
+              <div>
+                <strong style="color:#fff;">Avoid LRU in Scrolling Feeds</strong>
+                <p>Updating view timestamps during scroll causes disk thrashing and dropped UI frames. Use FIFO timeline ordering instead.</p>
+              </div>
+            </div>
+
+            <div style="display: flex; gap: 12px; align-items: flex-start;">
+              <span class="badge-icon badge-emerald">3</span>
+              <div>
+                <strong style="color:#fff;">Never Trust Wall Clock for Local State</strong>
+                <p>Pair hardware monotonic stopwatches with HTTP <code>Date</code> headers to eliminate clock skew and time tampering.</p>
+              </div>
+            </div>
+
+            <div style="display: flex; gap: 12px; align-items: flex-start;">
+              <span class="badge-icon badge-purple">4</span>
+              <div>
+                <strong style="color:#fff;">Use Snowflake Idempotency for Offline Writes</strong>
+                <p>Tag mutations with client-generated <code>requestId</code>s so network retries never produce duplicate likes or posts.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="card" style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; background: radial-gradient(circle at center, rgba(56, 189, 248, 0.08), transparent 70%); min-height: 260px;">
+            <div style="font-size: 3.5rem; margin-bottom: 14px;">💬</div>
+            <h3 style="font-size: 1.8rem; font-weight: 700; color: #fff;">Questions</h3>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <div class="notes-drawer" id="notesDrawer">
+      <div class="notes-header">
+        <span class="notes-title">Notes</span>
+        <span style="font-size: 0.75rem; color: var(--text-dim);">Press <span class="kbd">N</span> to close</span>
+      </div>
+      <div class="notes-body" id="notesContent">
+        Loading notes...
+      </div>
+    </div>
+
+    <footer>
+      <div style="display: flex; gap: 8px;">
+        <button class="nav-btn" id="prevBtn">← Previous [<span class="kbd">←</span>]</button>
+        <button class="nav-btn primary" id="nextBtn">Next → [<span class="kbd">→</span>]</button>
+      </div>
+
+      <div class="progress-track">
+        <div class="progress-bar" id="progressBar"></div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <span class="slide-counter" id="slideCounter">Slide 1 / 10</span>
+        <button class="nav-btn" id="fsBtn" title="Toggle Fullscreen">⛶ Fullscreen</button>
+      </div>
+    </footer>
+  </div>
+
+  <script>
+    const slides = Array.from(document.querySelectorAll('.slide'));
+    let currentIndex = 0;
+    const totalSlides = slides.length;
+
+    const prevBtn = document.getElementById('prevBtn');
+    const nextBtn = document.getElementById('nextBtn');
+    const progressBar = document.getElementById('progressBar');
+    const slideCounter = document.getElementById('slideCounter');
+    const notesDrawer = document.getElementById('notesDrawer');
+    const notesContent = document.getElementById('notesContent');
+    const toggleNotesBtn = document.getElementById('toggleNotesBtn');
+    const fsBtn = document.getElementById('fsBtn');
+    const timerDisplay = document.getElementById('timerDisplay');
+
+    let secondsElapsed = 0;
+    setInterval(() => {
+      secondsElapsed++;
+      const mins = String(Math.floor(secondsElapsed / 60)).padStart(2, '0');
+      const secs = String(secondsElapsed % 60).padStart(2, '0');
+      timerDisplay.textContent = `${mins}:${secs}`;
+    }, 1000);
+
+    function updateSlide(index) {
+      if (index < 0) index = 0;
+      if (index >= totalSlides) index = totalSlides - 1;
+
+      slides.forEach((slide, i) => {
+        slide.classList.toggle('active', i === index);
+      });
+
+      currentIndex = index;
+
+      const progressPercent = ((currentIndex + 1) / totalSlides) * 100;
+      progressBar.style.width = `${progressPercent}%`;
+      slideCounter.textContent = `Slide ${currentIndex + 1} / ${totalSlides}`;
+
+      prevBtn.disabled = currentIndex === 0;
+      prevBtn.style.opacity = currentIndex === 0 ? "0.4" : "1";
+      nextBtn.textContent = currentIndex === totalSlides - 1 ? "Finish" : "Next → [→]";
+
+      const notes = slides[currentIndex].getAttribute('data-notes') || "No notes for this slide.";
+      notesContent.textContent = notes;
+    }
+
+    function toggleNotes() {
+      notesDrawer.classList.toggle('open');
+    }
+
+    function toggleFullscreen() {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(() => {});
+      } else {
+        document.exitFullscreen().catch(() => {});
+      }
+    }
+
+    prevBtn.addEventListener('click', () => updateSlide(currentIndex - 1));
+    nextBtn.addEventListener('click', () => updateSlide(currentIndex + 1));
+    toggleNotesBtn.addEventListener('click', toggleNotes);
+    fsBtn.addEventListener('click', toggleFullscreen);
+
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') {
+        e.preventDefault();
+        updateSlide(currentIndex + 1);
+      } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+        e.preventDefault();
+        updateSlide(currentIndex - 1);
+      } else if (e.key === 'n' || e.key === 'N') {
+        toggleNotes();
+      } else if (e.key === 'f' || e.key === 'F') {
+        toggleFullscreen();
+      }
+    });
+
+    updateSlide(0);
+  </script>
+</body>
+</html>
