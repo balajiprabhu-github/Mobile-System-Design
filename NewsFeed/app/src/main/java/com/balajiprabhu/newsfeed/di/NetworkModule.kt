@@ -1,6 +1,7 @@
 package com.balajiprabhu.newsfeed.di
 
 import com.balajiprabhu.newsfeed.data.remote.NetworkClient
+import com.balajiprabhu.newsfeed.data.remote.ServerTimeInterceptor
 import com.balajiprabhu.newsfeed.data.remote.api.NewsFeedApiService
 import dagger.Module
 import dagger.Provides
@@ -14,7 +15,9 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideNewsFeedApiService(): NewsFeedApiService {
-        return NetworkClient.createApiService()
+    fun provideNewsFeedApiService(
+        serverTimeInterceptor: ServerTimeInterceptor
+    ): NewsFeedApiService {
+        return NetworkClient.createApiService(serverTimeInterceptor = serverTimeInterceptor)
     }
 }
