@@ -13,6 +13,8 @@ fun PostEntity.toPost(): Post {
         authorName = authorName,
         content = content,
         likeCount = likeCount,
+        isLiked = isLiked,
+        syncStatus = syncStatus,
         timeStamp = timeStamp
     )
 }
@@ -23,6 +25,8 @@ fun Post.toPostEntity(cachedAt: Long): PostEntity {
         authorName = authorName,
         content = content,
         likeCount = likeCount,
+        isLiked = isLiked,
+        syncStatus = syncStatus,
         timeStamp = timeStamp,
         cachedAt = cachedAt
     )
@@ -34,6 +38,8 @@ fun FeedPostDto.toPostEntity(cachedAt: Long): PostEntity {
         authorName = author.name,
         content = contentSummary,
         likeCount = likeCount,
+        isLiked = liked,
+        syncStatus = "SYNCED",
         timeStamp = parseIsoTimestamp(createdAt),
         cachedAt = cachedAt
     )

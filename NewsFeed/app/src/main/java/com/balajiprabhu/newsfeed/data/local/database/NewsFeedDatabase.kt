@@ -5,7 +5,7 @@ import androidx.room.RoomDatabase
 import com.balajiprabhu.newsfeed.data.local.dao.PostDao
 import com.balajiprabhu.newsfeed.data.local.entity.PostEntity
 
-@Database(entities = [PostEntity::class], version = 1, exportSchema = false)
+@Database(entities = [PostEntity::class], version = 2, exportSchema = false)
 abstract class NewsFeedDatabase : RoomDatabase() {
     abstract fun postDao(): PostDao
 }

@@ -24,4 +24,13 @@ interface PostDao {
 
     @Query("DELETE FROM posts WHERE id IN (SELECT id FROM posts ORDER BY timeStamp ASC LIMIT :excessCount)")
     suspend fun deleteOldestPosts(excessCount: Int)
+
+    @Query("SELECT * FROM posts WHERE id = :postId")
+    suspend fun getPostById(postId: String): PostEntity?
+
+    @Query("UPDATE posts SET isLiked = :isLiked, likeCount = :likeCount, syncStatus = :syncStatus WHERE id = :postId")
+    suspend fun updatePostLikeStatus(postId: String, isLiked: Boolean, likeCount: Int, syncStatus: String)
+
+    @Query("UPDATE posts SET syncStatus = :syncStatus WHERE id = :postId")
+    suspend fun updateSyncStatus(postId: String, syncStatus: String)
 }

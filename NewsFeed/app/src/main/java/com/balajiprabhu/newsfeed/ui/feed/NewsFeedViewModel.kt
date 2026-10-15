@@ -58,4 +58,10 @@ class NewsFeedViewModel @Inject constructor(
             }
         }
     }
+
+    fun toggleLike(postId: String) {
+        viewModelScope.launch {
+            feedRepository.toggleLike(postId)
+        }
+    }
 }
