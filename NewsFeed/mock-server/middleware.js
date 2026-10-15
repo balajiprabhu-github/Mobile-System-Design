@@ -20,10 +20,12 @@ module.exports = (req, res, next) => {
     // Parse the interaction request
     const { type } = req.body;
 
-    if (type === 'like') {
-      // Toggle like status
-      const newLiked = !post.liked;
-      const newLikeCount = newLiked ? post.likeCount + 1 : post.likeCount - 1;
+    if (type === 'like' || type === 'unlike') {
+      // Set or toggle like status
+      const newLiked = type === 'like';
+      const newLikeCount = newLiked
+        ? (post.liked ? post.likeCount : post.likeCount + 1)
+        : (post.liked ? Math.max(0, post.likeCount - 1) : post.likeCount);
 
       // Update the post
       db.get('posts')
