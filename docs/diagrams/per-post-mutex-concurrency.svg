@@ -1,0 +1,82 @@
+<svg viewBox="0 0 760 410" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="760" height="410" rx="16" fill="#0B0F19"/>
+  <rect x="1" y="1" width="758" height="408" rx="15" stroke="rgba(255,255,255,0.08)" stroke-width="2"/>
+
+  <!-- Title & Subtitle -->
+  <text x="32" y="38" fill="#F8FAFC" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="16" font-weight="700">Rapid Consecutive Taps: Race Conditions vs Per-Post Mutex</text>
+  <text x="32" y="58" fill="#94A3B8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12">Why un-synchronized mobile coroutines cause state inversion and how a Mutex guarantees causality</text>
+
+  <!-- Scenario 1: Unsynchronized -->
+  <rect x="25" y="80" width="710" height="140" rx="12" fill="#111827" stroke="#F43F5E" stroke-width="1.5"/>
+  <rect x="40" y="92" width="220" height="22" rx="4" fill="rgba(244, 63, 94, 0.15)"/>
+  <text x="48" y="107" fill="#F43F5E" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700">HAZARD: UNSYNCHRONIZED COROUTINES</text>
+
+  <!-- Tap 1: Like -->
+  <rect x="40" y="125" width="105" height="42" rx="8" fill="#1E293B" stroke="#38BDF8" stroke-width="1.5"/>
+  <text x="92" y="143" fill="#38BDF8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="10" font-weight="700" text-anchor="middle">Tap 1 (t=0ms)</text>
+  <text x="92" y="157" fill="#E2E8F0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="10" text-anchor="middle">Action: LIKE</text>
+
+  <!-- Tap 2: Unlike -->
+  <rect x="40" y="172" width="105" height="40" rx="8" fill="#1E293B" stroke="#FBBF24" stroke-width="1.5"/>
+  <text x="92" y="188" fill="#FBBF24" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="10" font-weight="700" text-anchor="middle">Tap 2 (t=180ms)</text>
+  <text x="92" y="202" fill="#E2E8F0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="10" text-anchor="middle">Action: UNLIKE</text>
+
+  <!-- Flight paths -->
+  <!-- Tap 1 Slow Network flight -->
+  <path d="M145 146 H 520" stroke="#38BDF8" stroke-width="2" stroke-dasharray="4 4" marker-end="url(#arrow-cyan)"/>
+  <text x="330" y="138" fill="#94A3B8" font-family="monospace" font-size="9" text-anchor="middle">Req 1 (Slow Mobile Radio: 650ms)</text>
+
+  <!-- Tap 2 Fast Network flight -->
+  <path d="M145 192 H 360" stroke="#FBBF24" stroke-width="2" stroke-dasharray="4 4" marker-end="url(#arrow-amber)"/>
+  <text x="250" y="186" fill="#FBBF24" font-family="monospace" font-size="9" text-anchor="middle">Req 2 (Fast Radio: 150ms)</text>
+
+  <!-- Server & Client Inverted State -->
+  <rect x="535" y="115" width="185" height="92" rx="8" fill="#1E293B" stroke="#F43F5E" stroke-width="1.5"/>
+  <text x="627" y="134" fill="#F43F5E" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="10" font-weight="700" text-anchor="middle">INVERSION DISASTER</text>
+  <text x="627" y="152" fill="#E2E8F0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="9" text-anchor="middle">1. Server executes Req 2 (UNLIKE)</text>
+  <text x="627" y="168" fill="#F43F5E" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="9" text-anchor="middle">2. Server executes Req 1 (LIKE)</text>
+  <text x="627" y="188" fill="#FBBF24" font-family="monospace" font-size="9" text-anchor="middle">State is now LIKED (User wanted UNLIKE)</text>
+
+  <!-- Scenario 2: With Per-Post Mutex -->
+  <rect x="25" y="235" width="710" height="155" rx="12" fill="#111827" stroke="#34D399" stroke-width="1.5"/>
+  <rect x="40" y="247" width="220" height="22" rx="4" fill="rgba(52, 211, 153, 0.15)"/>
+  <text x="48" y="262" fill="#34D399" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700">SOLUTION: PER-POST MUTEX SERIALIZATION</text>
+
+  <!-- Tap 1 Block: Acquires Mutex -->
+  <rect x="40" y="280" width="115" height="44" rx="8" fill="#1E293B" stroke="#38BDF8" stroke-width="1.5"/>
+  <text x="97" y="298" fill="#38BDF8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="10" font-weight="700" text-anchor="middle">Tap 1 (LIKE)</text>
+  <text x="97" y="313" fill="#34D399" font-family="monospace" font-size="9" text-anchor="middle">ACQUIRES LOCK</text>
+
+  <!-- Req 1 Executes -->
+  <path d="M155 302 H 290" stroke="#38BDF8" stroke-width="2" marker-end="url(#arrow-cyan)"/>
+  <rect x="295" y="280" width="125" height="44" rx="8" fill="#1E293B" stroke="#38BDF8" stroke-width="1.5"/>
+  <text x="357" y="298" fill="#38BDF8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="10" font-weight="600" text-anchor="middle">Req 1 in Flight</text>
+  <text x="357" y="313" fill="#94A3B8" font-family="monospace" font-size="9" text-anchor="middle">POST (isLiked=true)</text>
+
+  <!-- Tap 2 Suspends cleanly on Mutex -->
+  <rect x="40" y="335" width="115" height="44" rx="8" fill="#1E293B" stroke="#FBBF24" stroke-width="1.5"/>
+  <text x="97" y="353" fill="#FBBF24" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="10" font-weight="700" text-anchor="middle">Tap 2 (UNLIKE)</text>
+  <text x="97" y="368" fill="#FBBF24" font-family="monospace" font-size="9" text-anchor="middle">SUSPENDS ON LOCK</text>
+
+  <!-- Release Lock & Req 2 Runs -->
+  <path d="M420 302 H 455 V 357 H 490" stroke="#34D399" stroke-width="2" marker-end="url(#arrow-emerald)"/>
+  <text x="445" y="325" fill="#34D399" font-family="monospace" font-size="9">Lock freed</text>
+
+  <rect x="495" y="335" width="225" height="44" rx="8" fill="#1E293B" stroke="#34D399" stroke-width="1.5"/>
+  <text x="607" y="352" fill="#34D399" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="10" font-weight="700" text-anchor="middle">Req 2 Executes Sequentially</text>
+  <text x="607" y="367" fill="#F8FAFC" font-family="monospace" font-size="9" text-anchor="middle">Reads latest DB state &#8594; Sends UNLIKE &#8594; PERFECT SYNC</text>
+
+  <!-- Marker Definitions -->
+  <defs>
+    <marker id="arrow-cyan" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 9 5 L 0 9 z" fill="#38BDF8"/>
+    </marker>
+    <marker id="arrow-amber" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 9 5 L 0 9 z" fill="#FBBF24"/>
+    </marker>
+    <marker id="arrow-emerald" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 9 5 L 0 9 z" fill="#34D399"/>
+    </marker>
+  </defs>
+</svg>

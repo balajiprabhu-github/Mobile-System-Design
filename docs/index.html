@@ -87,6 +87,37 @@
       color: var(--accent-cyan);
     }
 
+    .deck-switcher {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: 16px;
+      padding-left: 16px;
+      border-left: 1px solid rgba(255, 255, 255, 0.12);
+    }
+
+    .deck-link {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      text-decoration: none;
+      padding: 4px 10px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.04);
+      transition: all 0.2s ease;
+    }
+
+    .deck-link:hover {
+      color: var(--text-main);
+      background: rgba(56, 189, 248, 0.15);
+    }
+
+    .deck-link.active {
+      color: var(--accent-cyan);
+      background: rgba(56, 189, 248, 0.12);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+    }
+
     .header-controls {
       display: flex;
       align-items: center;
@@ -433,8 +464,14 @@
 
   <div class="deck-container">
     <header>
-      <div class="brand">
-        <span>Mobile System Design</span>
+      <div style="display: flex; align-items: center;">
+        <div class="brand">
+          <span>Mobile System Design</span>
+        </div>
+        <div class="deck-switcher">
+          <a href="presentation.html" class="deck-link active">Cache Eviction &amp; Time</a>
+          <a href="optimistic-writes.html" class="deck-link">Optimistic Writes &amp; Mutex</a>
+        </div>
       </div>
       <div class="header-controls">
         <div class="timer-pill" id="sessionTimer">

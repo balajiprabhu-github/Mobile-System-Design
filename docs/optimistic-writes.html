@@ -1,0 +1,1026 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Optimistic Writes, Local Mutex &amp; Distributed Consistency</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #0a0e17;
+      --bg-surface: #111827;
+      --bg-card: rgba(17, 24, 39, 0.75);
+      --border-color: rgba(255, 255, 255, 0.08);
+      --border-highlight: rgba(56, 189, 248, 0.3);
+      --accent-cyan: #38bdf8;
+      --accent-indigo: #818cf8;
+      --accent-emerald: #34d399;
+      --accent-amber: #fbbf24;
+      --accent-rose: #f43f5e;
+      --accent-purple: #c084fc;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background: var(--bg-primary);
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      overflow: hidden;
+      height: 100vh;
+      width: 100vw;
+      user-select: none;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .ambient-glow {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 80vw;
+      height: 80vh;
+      background: radial-gradient(circle, rgba(56, 189, 248, 0.06) 0%, rgba(129, 140, 248, 0.03) 40%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .deck-container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      z-index: 1;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 36px;
+      border-bottom: 1px solid var(--border-color);
+      background: rgba(10, 14, 23, 0.85);
+      backdrop-filter: blur(12px);
+      z-index: 10;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 700;
+      font-size: 0.95rem;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--accent-cyan);
+    }
+
+    .deck-switcher {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: 16px;
+      padding-left: 16px;
+      border-left: 1px solid rgba(255, 255, 255, 0.12);
+    }
+
+    .deck-link {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      text-decoration: none;
+      padding: 4px 10px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.04);
+      transition: all 0.2s ease;
+    }
+
+    .deck-link:hover {
+      color: var(--text-main);
+      background: rgba(56, 189, 248, 0.15);
+    }
+
+    .deck-link.active {
+      color: var(--accent-cyan);
+      background: rgba(56, 189, 248, 0.12);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+    }
+
+    .header-controls {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .timer-pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      background: rgba(255, 255, 255, 0.04);
+      padding: 6px 14px;
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
+    }
+
+    .timer-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent-emerald);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    .slide-arena {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .slide {
+      position: absolute;
+      inset: 0;
+      padding: 36px 64px 20px;
+      display: flex;
+      flex-direction: column;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateX(40px) scale(0.98);
+      transition: opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1), transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .slide.active {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateX(0) scale(1);
+    }
+
+    .slide-tag {
+      display: inline-block;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--accent-cyan);
+      margin-bottom: 6px;
+    }
+
+    .slide-title {
+      font-size: 2.2rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 6px;
+      background: linear-gradient(135deg, #ffffff 30%, #94a3b8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .slide-subtitle {
+      font-size: 1.02rem;
+      color: var(--text-muted);
+      max-width: 900px;
+      line-height: 1.5;
+      margin-bottom: 20px;
+    }
+
+    .content-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 28px;
+      flex: 1;
+      align-items: center;
+      min-height: 0;
+    }
+
+    .content-grid.single-col {
+      grid-template-columns: 1fr;
+    }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 22px;
+      backdrop-filter: blur(16px);
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
+    }
+
+    .card-title {
+      font-size: 1.12rem;
+      font-weight: 700;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--text-main);
+    }
+
+    .card p, .card li {
+      color: var(--text-muted);
+      font-size: 0.92rem;
+      line-height: 1.6;
+    }
+
+    .card ul {
+      list-style-type: none;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .card li {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+
+    .card li::before {
+      content: "•";
+      color: var(--accent-cyan);
+      font-size: 1.3rem;
+      line-height: 1;
+    }
+
+    .badge-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      flex-shrink: 0;
+    }
+
+    .badge-cyan { background: rgba(56, 189, 248, 0.15); color: var(--accent-cyan); }
+    .badge-indigo { background: rgba(129, 140, 248, 0.15); color: var(--accent-indigo); }
+    .badge-emerald { background: rgba(52, 211, 153, 0.15); color: var(--accent-emerald); }
+    .badge-rose { background: rgba(244, 63, 94, 0.15); color: var(--accent-rose); }
+    .badge-amber { background: rgba(251, 191, 36, 0.15); color: var(--accent-amber); }
+    .badge-purple { background: rgba(192, 132, 252, 0.15); color: var(--accent-purple); }
+
+    pre {
+      background: #080c14;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 12px;
+      padding: 14px;
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      line-height: 1.5;
+      overflow-x: auto;
+      color: #e2e8f0;
+    }
+
+    .code-keyword { color: #c084fc; font-weight: 600; }
+    .code-func { color: #38bdf8; }
+    .code-comment { color: #64748b; font-style: italic; }
+    .code-val { color: #34d399; }
+    .code-type { color: #fbbf24; }
+    .code-ann { color: #f43f5e; }
+
+    .diagram-container {
+      background: rgba(8, 12, 20, 0.85);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      min-height: 310px;
+      box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.4);
+    }
+
+    .diagram-container img, .diagram-container svg {
+      width: 100%;
+      height: 100%;
+      max-height: 370px;
+      object-fit: contain;
+    }
+
+    .notes-drawer {
+      position: absolute;
+      bottom: 64px;
+      left: 50%;
+      transform: translateX(-50%) translateY(120%);
+      width: 85%;
+      max-width: 900px;
+      background: rgba(15, 23, 42, 0.96);
+      backdrop-filter: blur(20px);
+      border: 1px solid var(--border-highlight);
+      border-radius: 14px;
+      padding: 16px 24px;
+      z-index: 50;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.6);
+      transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .notes-drawer.open {
+      transform: translateX(-50%) translateY(0);
+    }
+
+    .notes-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 6px;
+    }
+
+    .notes-title {
+      font-size: 0.85rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--accent-cyan);
+    }
+
+    .notes-body {
+      font-size: 0.9rem;
+      line-height: 1.6;
+      color: #cbd5e1;
+      max-height: 180px;
+      overflow-y: auto;
+      white-space: pre-line;
+    }
+
+    footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 14px 36px;
+      border-top: 1px solid var(--border-color);
+      background: rgba(10, 14, 23, 0.85);
+      backdrop-filter: blur(12px);
+      z-index: 10;
+    }
+
+    .nav-btn {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+
+    .nav-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .nav-btn.primary {
+      background: var(--accent-cyan);
+      color: #04101e;
+      border-color: transparent;
+    }
+
+    .nav-btn.primary:hover {
+      background: #7dd3fc;
+    }
+
+    .progress-track {
+      flex: 1;
+      max-width: 480px;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 2px;
+      overflow: hidden;
+      margin: 0 24px;
+    }
+
+    .progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent-cyan), var(--accent-indigo));
+      width: 10%;
+      transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .slide-counter {
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      color: var(--text-dim);
+    }
+
+    .kbd {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--text-muted);
+    }
+
+    .highlight-pill {
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      padding: 3px 8px;
+      border-radius: 6px;
+      display: inline-block;
+      margin-bottom: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="ambient-glow"></div>
+
+  <div class="deck-container">
+    <header>
+      <div style="display: flex; align-items: center;">
+        <div class="brand">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+          </svg>
+          Mobile System Design Masterclass
+        </div>
+        <div class="deck-switcher">
+          <a href="presentation.html" class="deck-link">Cache Eviction &amp; Time</a>
+          <a href="optimistic-writes.html" class="deck-link active">Optimistic Writes &amp; Mutex</a>
+        </div>
+      </div>
+
+      <div class="header-controls">
+        <div class="timer-pill">
+          <div class="timer-dot"></div>
+          <span id="timerDisplay">00:00</span>
+        </div>
+        <button class="nav-btn" id="toggleNotesBtn" title="Toggle Presenter Notes [N]">
+          📝 Notes [<span class="kbd">N</span>]
+        </button>
+      </div>
+    </header>
+
+    <main class="slide-arena">
+
+      <!-- SLIDE 1: TITLE & OVERVIEW -->
+      <section class="slide active" data-notes="Welcome everyone. Today we are diving into one of the most critical topics in Mobile System Design: Optimistic Writes, Concurrency Control, and Distributed Consistency. 
+      In mobile apps with hundreds of millions of users, network latency is never guaranteed. If a user likes a post, toggles a bookmark, or submits a comment, waiting 300 to 800 milliseconds for a cellular round trip makes the app feel sluggish and unresponsive.
+      We'll explore how to achieve 0-millisecond perceived latency using local SQLite as the Single Source of Truth, how to eliminate race conditions using Per-Post Mutex locks, and how to safely handle failures, retries, and multi-device conflicts.">
+        <span class="slide-tag">ARCHITECTURE MASTERCLASS • MOBILE SYSTEM DESIGN</span>
+        <h1 class="slide-title">Optimistic Writes &amp; Concurrency Control</h1>
+        <p class="slide-subtitle">Architecting 0ms Perceived Latency, Local Mutex Serialization, and Fault-Tolerant Distributed Sync (Flutter, React Native &amp; Native)</p>
+
+        <div class="content-grid">
+          <div class="card">
+            <h3 class="card-title">
+              <span class="badge-icon badge-cyan">⚡</span>
+              The Zero-Latency Expectation
+            </h3>
+            <p style="margin-bottom: 12px;">Mobile users expect instantaneous physical feedback when tapping interactive controls. Cellular latency and dropped packets must never degrade the tactile feel of the client application.</p>
+            <ul>
+              <li><strong>Instant Gratification:</strong> Local UI flips state within one animation frame (&lt;16ms).</li>
+              <li><strong>Local-First Storage:</strong> SQLite/Room acts as the durable buffer and Single Source of Truth (SSOT).</li>
+              <li><strong>Flickering Connectivity:</strong> Subway commutes, elevators, and cell tower handoffs require resilient background sync.</li>
+            </ul>
+          </div>
+
+          <div class="card">
+            <h3 class="card-title">
+              <span class="badge-icon badge-indigo">🏛️</span>
+              The 4 Pillars of Optimistic Sync
+            </h3>
+            <ul>
+              <li><strong>Durable State Machine:</strong> Persistent <code>SYNCED</code>, <code>PENDING</code>, and <code>FAILED</code> row markers.</li>
+              <li><strong>Per-Entity Concurrency Control:</strong> Mutex locks serialized per ID to eliminate out-of-order race conditions.</li>
+              <li><strong>Compensating Rollbacks:</strong> Deterministic rollback to pre-tap state upon terminal network failure.</li>
+              <li><strong>Distributed Idempotency:</strong> Client-generated Snowflake <code>requestId</code> enforcing Last-Write-Wins (LWW).</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- SLIDE 2: UX LATENCY PARADOX -->
+      <section class="slide" data-notes="Let's contrast the two fundamental mental models for mobile interactions: Pessimistic vs Optimistic UI.
+      In a pessimistic model, the UI displays a spinner or blocks touch events until the server returns 200 OK. If the user is on a 3G network or underground, the heart icon sits there spinning for 1.2 seconds, or worse, fails completely.
+      In an optimistic model, the UI mutates local state immediately. The database emits a new snapshot to Compose or SwiftUI within 5 milliseconds. The network synchronization happens invisibly in the background. If the request fails, only then do we perform a compensating rollback.">
+        <span class="slide-tag">INTERACTION PATTERNS</span>
+        <h2 class="slide-title">Pessimistic vs. Optimistic UI Updates</h2>
+        <p class="slide-subtitle">Why waiting for cellular round trips destroys social feed engagement and how optimistic execution works</p>
+
+        <div class="content-grid">
+          <div class="card" style="border-color: rgba(244, 63, 94, 0.3);">
+            <div class="highlight-pill" style="background: rgba(244, 63, 94, 0.15); color: var(--accent-rose);">THE SLUGGISH APPROACH</div>
+            <h3 class="card-title">
+              <span class="badge-icon badge-rose">⏳</span>
+              Pessimistic UI (The Spinner Trap)
+            </h3>
+            <p style="margin-bottom: 14px;">The application treats the remote server as the immediate gatekeeper for visual feedback.</p>
+            <ul>
+              <li><strong>User Tap:</strong> Like button triggers a network call and shows a loading spinner.</li>
+              <li><strong>Round-Trip Delay:</strong> 250ms–1500ms cellular latency freezes the interactive flow.</li>
+              <li><strong>Offline Failure:</strong> If connectivity drops, the interaction fails immediately without recording intent.</li>
+              <li><strong>Result:</strong> Clunky, laggy user perception; feels broken in subways and elevators.</li>
+            </ul>
+          </div>
+
+          <div class="card" style="border-color: rgba(52, 211, 153, 0.3);">
+            <div class="highlight-pill" style="background: rgba(52, 211, 153, 0.15); color: var(--accent-emerald);">THE PRODUCTION STANDARD</div>
+            <h3 class="card-title">
+              <span class="badge-icon badge-emerald">🚀</span>
+              Optimistic UI (0ms Response)
+            </h3>
+            <p style="margin-bottom: 14px;">The application assumes network success, mutating local persistent storage instantly.</p>
+            <ul>
+              <li><strong>Instant Update (&lt;5ms):</strong> Local database row updated; UI observes changes via reactive Stream/Flow.</li>
+              <li><strong>Asynchronous Sync:</strong> Radio packet dispatched in the background with retry policies.</li>
+              <li><strong>Silent Reconciliation:</strong> Server response acknowledges the transaction and transitions status to <code>SYNCED</code>.</li>
+              <li><strong>Result:</strong> Silky smooth 120Hz feel; user experiences zero perceived network lag.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- SLIDE 3: 3-TIER STATE MACHINE -->
+      <section class="slide" data-notes="Here is the complete state machine lifecycle. 
+      Notice that we do NOT just update an in-memory boolean in the ViewModel. Why? Because if the operating system kills the process while the phone is locked or memory is low, that state vanishes!
+      Instead, we write to Room with `isLiked = true` and `syncStatus = PENDING`. The UI observes the Room Flow and updates immediately.
+      When the server returns 200 OK, we update `syncStatus = SYNCED`. If all retries fail, we rollback `isLiked = false` and set `syncStatus = FAILED`.">
+        <span class="slide-tag">STATE ARCHITECTURE</span>
+        <h2 class="slide-title">The 3-Tier State Machine Lifecycle</h2>
+        <p class="slide-subtitle">Durable persistence in SQLite (Room) ensures transitions survive process death and background execution</p>
+
+        <div class="content-grid">
+          <div class="card">
+            <h3 class="card-title">
+              <span class="badge-icon badge-cyan">📊</span>
+              SQLite Schema Evolution
+            </h3>
+            <p style="margin-bottom: 12px;">Adding durable tracking fields via database migration:</p>
+            <pre><code><span class="code-comment">// Room Migration(1, 2)</span>
+<span class="code-keyword">val</span> MIGRATION_1_2 = <span class="code-keyword">object</span> : Migration(1, 2) {
+    <span class="code-keyword">override fun</span> <span class="code-func">migrate</span>(db: SupportSQLiteDatabase) {
+        db.execSQL(
+          <span class="code-val">"ALTER TABLE posts ADD COLUMN isLiked INTEGER NOT NULL DEFAULT 0"</span>
+        )
+        db.execSQL(
+          <span class="code-val">"ALTER TABLE posts ADD COLUMN syncStatus TEXT NOT NULL DEFAULT 'SYNCED'"</span>
+        )
+    }
+}</code></pre>
+            <ul style="margin-top: 14px;">
+              <li><code style="color:var(--accent-cyan);">SYNCED</code>: State is identically mirrored on client and server.</li>
+              <li><code style="color:var(--accent-amber);">PENDING</code>: Optimistic mutation applied locally; network in flight.</li>
+              <li><code style="color:var(--accent-rose);">FAILED</code>: Network retries exhausted; requires rollback or retry cue.</li>
+            </ul>
+          </div>
+
+          <div class="diagram-container">
+            <img src="diagrams/optimistic-write-state-machine.svg" alt="Optimistic Write State Machine">
+          </div>
+        </div>
+      </section>
+
+      <!-- SLIDE 4: THE CONCURRENCY BUG -->
+      <section class="slide" data-notes="Now let's examine the bug that trips up most candidates in system design interviews: The Rapid Consecutive Tap Race Condition.
+      Imagine a user double-taps or taps Like, then quickly changes their mind and taps Unlike within 200 milliseconds.
+      If you simply launch two un-synchronized coroutines, Request 1 (Like) and Request 2 (Unlike) both fly across the cell network.
+      Due to radio latency jitter, Request 2 might reach the server in 150ms, while Request 1 gets delayed and arrives at 650ms.
+      The server unlikes first, then likes! The user wanted the post unliked, but their account is now left in the Liked state.
+      Why can't we just debounce? Because debounce throws away gestures! If the user intended to unlike, dropping that second tap means we never unliked.">
+        <span class="slide-tag">DISTRIBUTED CONCURRENCY HAZARD</span>
+        <h2 class="slide-title">The Rapid-Tap State Inversion Bug</h2>
+        <p class="slide-subtitle">How mobile radio jitter causes out-of-order network arrival and inverts user intent</p>
+
+        <div class="content-grid">
+          <div class="card">
+            <div class="highlight-pill" style="background: rgba(244, 63, 94, 0.15); color: var(--accent-rose);">THE OUT-OF-ORDER TRAP</div>
+            <h3 class="card-title">
+              <span class="badge-icon badge-rose">💥</span>
+              The Async Race Breakdown
+            </h3>
+            <ul>
+              <li><strong>t = 0ms:</strong> User taps "Like". Coroutine #1 launched with payload <code>{ action: "LIKE" }</code>.</li>
+              <li><strong>t = 180ms:</strong> User changes mind, taps "Unlike". Coroutine #2 launched with <code>{ action: "UNLIKE" }</code>.</li>
+              <li><strong>Variable Radio Latency:</strong> Mobile packets take different routing hops over 5G/LTE towers.</li>
+              <li><strong>Arrival Inversion:</strong> Server receives <code>UNLIKE</code> first, then receives <code>LIKE</code> 400ms later.</li>
+              <li><strong>State Disaster:</strong> The client UI thinks the post is unliked, but the backend database is permanently Liked!</li>
+            </ul>
+          </div>
+
+          <div class="card">
+            <h3 class="card-title">
+              <span class="badge-icon badge-amber">⚠️</span>
+              Why Debouncing is NOT the Solution
+            </h3>
+            <p style="margin-bottom: 12px;">Engineers frequently suggest <code>debounce(300ms)</code> to solve this. Here is why that fails in production:</p>
+            <ul>
+              <li><strong>Debounce Drops Gestures:</strong> Debouncing ignores the subsequent tap. But the second tap had the <em>opposite semantic intent</em> (Unlike vs Like)!</li>
+              <li><strong>Delayed Perceived Feedback:</strong> Waiting 300ms before taking action destroys the zero-latency promise.</li>
+              <li><strong>What We Need:</strong> We must process <strong>every intentional toggle</strong>, but execute them in strict <strong>causal FIFO sequence</strong>.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- SLIDE 5: THE PER-POST MUTEX -->
+      <section class="slide" data-notes="This brings us to the core engineering solution: The Per-Post Mutex.
+      Notice the word 'Per-Post'. If you use a single global Mutex or a synchronized block across the entire repository, liking Post A would block the user from liking Post B or scrolling the feed! That creates UI jank and priority inversion.
+      Instead, we maintain a ConcurrentHashMap of Mutex instances keyed by postId.
+      When Tap 1 comes in, it acquires the Mutex for Post 101. When Tap 2 comes in 100ms later, it suspends cooperatively on that same Mutex.
+      Coroutine #2 does NOT block a thread; it just waits in the coroutine dispatcher queue.
+      Once Request 1 completes, Request 2 acquires the lock, reads the freshly updated state, and sends the correct UNLIKE command. Causality is 100% preserved!">
+        <span class="slide-tag">CONCURRENCY ARCHITECTURE</span>
+        <h2 class="slide-title">Per-Post Mutex Serialization</h2>
+        <p class="slide-subtitle">Eliminating race conditions without freezing concurrent feed interactions</p>
+
+        <div class="content-grid">
+          <div class="card">
+            <h3 class="card-title">
+              <span class="badge-icon badge-indigo">🔒</span>
+              Repository Implementation
+            </h3>
+            <pre><code><span class="code-keyword">class</span> <span class="code-type">FeedRepositoryImpl</span> @Inject <span class="code-keyword">constructor</span>(...) {
+  <span class="code-comment">// Thread-safe lock registry keyed by entity ID</span>
+  <span class="code-keyword">private val</span> postLocks = ConcurrentHashMap&lt;String, Mutex&gt;()
+
+  <span class="code-keyword">suspend fun</span> <span class="code-func">toggleLike</span>(postId: String) {
+    <span class="code-keyword">val</span> mutex = postLocks.computeIfAbsent(postId) { Mutex() }
+    
+    <span class="code-comment">// Cooperative suspension: does not block threads</span>
+    mutex.withLock {
+      <span class="code-comment">// 1. Capture snapshot for potential rollback</span>
+      <span class="code-keyword">val</span> current = postDao.getPostById(postId) ?: <span class="code-keyword">return</span>
+      <span class="code-keyword">val</span> nextLiked = !current.isLiked
+
+      <span class="code-comment">// 2. Optimistic 0ms DB write</span>
+      postDao.updateLikeStatus(postId, nextLiked, <span class="code-val">"PENDING"</span>)
+
+      <span class="code-comment">// 3. Serialized network dispatch</span>
+      executeNetworkSync(postId, nextLiked, current.isLiked)
+    }
+  }
+}</code></pre>
+          </div>
+
+          <div class="diagram-container">
+            <img src="diagrams/per-post-mutex-concurrency.svg" alt="Per-Post Mutex Concurrency">
+          </div>
+        </div>
+      </section>
+
+      <!-- SLIDE 6: RESILIENCE & RETRIES -->
+      <section class="slide" data-notes="Now let's talk about the subway tunnel scenario: flickering cellular connectivity.
+      When a user enters a subway, network calls will drop or timeout.
+      We handle this with a 2-stage resilience architecture:
+      Stage 1 is Transient Retries with Exponential Backoff and Jitter. For an active user interaction, we retry up to 3 times with 1s, 2s, 4s delays plus randomized jitter to prevent the thundering herd problem.
+      Stage 2 is Foreground vs Persistent WorkManager. If the user keeps using the app, the coroutine handles the quick retry. But for heavyweight offline drafts, comments, or post creation, we persist the mutation in an offline outbox table and let WorkManager guarantee delivery across process death and phone reboots.">
+        <span class="slide-tag">NETWORK FAULT TOLERANCE</span>
+        <h2 class="slide-title">Subway Resilience: Backoff &amp; Jitter</h2>
+        <p class="slide-subtitle">Distributing network recovery without overwhelming backend microservices</p>
+
+        <div class="content-grid">
+          <div class="card">
+            <h3 class="card-title">
+              <span class="badge-icon badge-amber">📈</span>
+              Exponential Backoff with Full Jitter
+            </h3>
+            <p style="margin-bottom: 12px;">When entering cellular dead zones, immediate retries only drain device battery and amplify radio strain:</p>
+            <pre><code><span class="code-keyword">suspend fun</span> &lt;T&gt; <span class="code-func">retryWithBackoff</span>(
+    maxAttempts: Int = 3,
+    initialDelayMs: Long = 1000L,
+    block: <span class="code-keyword">suspend</span> () -&gt; T
+): Result&lt;T&gt; {
+    <span class="code-keyword">var</span> currentDelay = initialDelayMs
+    <span class="code-keyword">for</span> (attempt <span class="code-keyword">in</span> 1..maxAttempts) {
+        <span class="code-keyword">try</span> {
+            <span class="code-keyword">return</span> Result.success(block())
+        } <span class="code-keyword">catch</span> (e: Exception) {
+            <span class="code-keyword">if</span> (attempt == maxAttempts) <span class="code-keyword">return</span> Result.failure(e)
+            <span class="code-comment">// Full jitter prevents coordinated retry stampedes</span>
+            <span class="code-keyword">val</span> jitter = Random.nextLong(0, currentDelay)
+            delay(currentDelay + jitter)
+            currentDelay *= 2
+        }
+    }
+    <span class="code-keyword">return</span> Result.failure(IllegalStateException())
+}</code></pre>
+          </div>
+
+          <div class="card">
+            <h3 class="card-title">
+              <span class="badge-icon badge-cyan">🔄</span>
+              Coroutine vs. WorkManager Strategy
+            </h3>
+            <ul>
+              <li><strong>Transient Reactions (Likes/Reactions):</strong> Handled in repository coroutine scope. If network fails after 3 quick attempts, roll back immediately so the UI reflects reality.</li>
+              <li><strong>Heavyweight Mutations (Posts/Drafts/Comments):</strong> Enqueued in SQLite Outbox table and handed to Android <code>WorkManager</code> / iOS <code>BGProcessingTask</code>.</li>
+              <li><strong>Survival Guarantees:</strong> WorkManager guarantees execution even if the user swipes away the application or the device restarts.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- SLIDE 7: ROLLBACK & COMPENSATING TRANSACTIONS -->
+      <section class="slide" data-notes="What happens when all retries are exhausted and the network is completely dead?
+      We must perform a Compensating Transaction (Rollback).
+      Before we mutated the database, we captured a snapshot of the previous state (`isLiked = false`).
+      On final failure, we update Room: `isLiked = false` and `syncStatus = FAILED`.
+      Because Compose or SwiftUI is observing the Room Flow, the heart icon smoothly un-fills back to its original state.
+      From a UX standpoint: Never show an intrusive, blocking alert dialog for a like error! That is terrible UX. Instead, display a non-blocking toast, or let the `FAILED` status display a subtle exclamation mark so the user can tap to retry when they leave the subway.">
+        <span class="slide-tag">RECOVERY ARCHITECTURE</span>
+        <h2 class="slide-title">Compensating Transactions &amp; Rollback UX</h2>
+        <p class="slide-subtitle">Restoring single-source truth gracefully without disorienting the user</p>
+
+        <div class="content-grid">
+          <div class="card">
+            <h3 class="card-title">
+              <span class="badge-icon badge-rose">↩️</span>
+              The Atomic Rollback Pattern
+            </h3>
+            <pre><code><span class="code-comment">// If all network attempts fail:</span>
+<span class="code-keyword">val</span> result = retryWithBackoff { api.likePost(postId) }
+
+result.onFailure {
+    <span class="code-comment">// Revert DB to pre-tap snapshot</span>
+    postDao.updateLikeStatus(
+        postId = postId,
+        isLiked = previousSnapshot.isLiked,
+        syncStatus = <span class="code-val">"FAILED"</span>
+    )
+    <span class="code-comment">// Emit non-blocking one-shot UI event</span>
+    _uiEvents.emit(UiEvent.ShowSnackbar(<span class="code-val">"Failed to sync like. Reverted."</span>))
+}</code></pre>
+            <ul style="margin-top: 14px;">
+              <li><strong>Automatic Reversion:</strong> Room re-emits the reverted row; Compose UI rolls back automatically.</li>
+              <li><strong>Audit Trail:</strong> Marking status <code>FAILED</code> prevents ghost state on next app launch.</li>
+            </ul>
+          </div>
+
+          <div class="card">
+            <h3 class="card-title">
+              <span class="badge-icon badge-indigo">🎨</span>
+              Non-Blocking UX Guidelines
+            </h3>
+            <ul>
+              <li><strong>No Modal Popups:</strong> Never interrupt reading with a modal dialogue for a secondary reaction failure.</li>
+              <li><strong>Subtle Reversion Animation:</strong> Heart icon de-saturates or un-fills with a subtle haptic pulse.</li>
+              <li><strong>Transient Snackbar:</strong> Provide an optional "Retry" action in a non-blocking snackbar at the bottom of the screen.</li>
+              <li><strong>Visual State Indicator:</strong> A tiny offline badge on posts with pending/failed mutations gives power users full visibility.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- SLIDE 8: DISTRIBUTED CONFLICTS & LWW -->
+      <section class="slide" data-notes="Now let's zoom out to distributed systems: Multi-Device Conflicts.
+      Imagine a user likes a post on their Android phone at 12:00:01, but unlikes it on their iPad at 12:00:04 while on airplane mode.
+      When both devices connect to Wi-Fi at 12:05:00, both mutations hit the backend. Which one wins?
+      This is where Last-Write-Wins (LWW) and Idempotency come in.
+      Every request carries an idempotent `requestId`. In high-scale architectures, this is a 64-bit Snowflake ID (timestamp + machine ID + sequence).
+      The server uses the embedded timestamp to order operations deterministically.
+      And because we used ServerTimeProvider from Phase 2, the phone's timestamp is synchronized to true UTC, not distorted by a tampered client clock!">
+        <span class="slide-tag">DISTRIBUTED SYSTEMS</span>
+        <h2 class="slide-title">Multi-Device Conflicts &amp; Idempotency</h2>
+        <p class="slide-subtitle">Enforcing Last-Write-Wins (LWW) across multiple mobile clients and offline queues</p>
+
+        <div class="content-grid">
+          <div class="card">
+            <h3 class="card-title">
+              <span class="badge-icon badge-cyan">🆔</span>
+              Snowflake Idempotency Keys
+            </h3>
+            <p style="margin-bottom: 12px;">When a subway network packet is retransmitted, the server must never double-count the mutation:</p>
+            <ul>
+              <li><strong>Client-Generated <code>requestId</code>:</strong> Generated once at mutation time (e.g. <code>req_8f93a1...</code>).</li>
+              <li><strong>Server Deduplication Table:</strong> Redis cache stores recent request IDs for 24 hours. Duplicate requests return cached 200 OK without re-applying business logic.</li>
+              <li><strong>Safe Retries:</strong> Network timeouts can be retried 10 times safely without incrementing like counters 10 times.</li>
+            </ul>
+          </div>
+
+          <div class="card">
+            <h3 class="card-title">
+              <span class="badge-icon badge-emerald">⚖️</span>
+              Last-Write-Wins (LWW) Resolution
+            </h3>
+            <p style="margin-bottom: 12px;">Resolving race conditions when Phone and Tablet mutate the same post while offline:</p>
+            <ul>
+              <li><strong>The Rule:</strong> The mutation with the latest authoritative timestamp prevails.</li>
+              <li><strong>The Catch:</strong> Never use local device clock (revisit Phase 2 Clock-Skew)! A phone set to 2099 would permanently override all future writes.</li>
+              <li><strong>The Solution:</strong> Monotonic time offset against server UTC (<code style="color:var(--accent-cyan);">ServerTimeProvider</code>) ensures fair, chronological ordering.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- SLIDE 9: CROSS-PLATFORM COMPARISON -->
+      <section class="slide" data-notes="As lead mobile architects, we must be able to articulate these patterns across all major mobile stacks.
+      In Android Kotlin: We use Kotlin Coroutines `Mutex.withLock` combined with Room flows and StateFlow.
+      In iOS Swift: Swift 6 Modern Concurrency gives us `actor FeedStore` which natively serializes tasks per actor instance, paired with SwiftData or CoreData.
+      In Flutter: The `package:synchronized` library provides `Lock()` mapped across Drift or Isar databases.
+      In React Native: Redux Toolkit or TanStack Query provides optimistic cache manipulation with offline mutation queues via WatermelonDB or MMKV.
+      The architectural principle is identical: Local DB is SSOT, Keyed Lock serializes execution, and background workers reconcile.">
+        <span class="slide-tag">CROSS-PLATFORM ARCHITECTURE</span>
+        <h2 class="slide-title">Universal Mobile Implementation Blueprint</h2>
+        <p class="slide-subtitle">How Native Android, iOS Swift, Flutter, and React Native implement this pattern</p>
+
+        <div class="content-grid">
+          <div class="card">
+            <div class="highlight-pill" style="background: rgba(56, 189, 248, 0.15); color: var(--accent-cyan);">ANDROID (KOTLIN) &amp; IOS (SWIFT)</div>
+            <h3 class="card-title">
+              <span class="badge-icon badge-cyan">📱</span>
+              Native Stacks
+            </h3>
+            <p style="margin-bottom: 8px;"><strong>Android:</strong></p>
+            <pre><code><span class="code-comment">// Keyed Mutex with Room SSOT</span>
+<span class="code-keyword">val</span> lock = mutexMap.computeIfAbsent(id) { Mutex() }
+lock.withLock {
+    db.postDao().update(id, isLiked = <span class="code-keyword">true</span>, <span class="code-val">"PENDING"</span>)
+    api.syncLike(id)
+}</code></pre>
+            <p style="margin: 10px 0 8px;"><strong>iOS (Swift 6 Concurrency):</strong></p>
+            <pre><code><span class="code-comment">// Swift Actor natively serializes state</span>
+<span class="code-keyword">actor</span> <span class="code-type">PostSyncActor</span> {
+    <span class="code-keyword">func</span> <span class="code-func">toggleLike</span>(id: String) <span class="code-keyword">async throws</span> { ... }
+}</code></pre>
+          </div>
+
+          <div class="card">
+            <div class="highlight-pill" style="background: rgba(192, 132, 252, 0.15); color: var(--accent-purple);">FLUTTER (DART) &amp; REACT NATIVE</div>
+            <h3 class="card-title">
+              <span class="badge-icon badge-purple">⚡</span>
+              Cross-Platform Stacks
+            </h3>
+            <p style="margin-bottom: 8px;"><strong>Flutter (Dart):</strong></p>
+            <pre><code><span class="code-comment">// package:synchronized Lock</span>
+<span class="code-keyword">final</span> lock = _locks.putIfAbsent(id, () =&gt; Lock());
+<span class="code-keyword">await</span> lock.synchronized(() <span class="code-keyword">async</span> {
+  <span class="code-keyword">await</span> driftDb.updateLike(id, liked: <span class="code-keyword">true</span>);
+  <span class="code-keyword">await</span> dio.post(<span class="code-val">'/api/like'</span>);
+});</code></pre>
+            <p style="margin: 10px 0 8px;"><strong>React Native:</strong></p>
+            <pre><code><span class="code-comment">// Redux Toolkit / TanStack Query Optimistic</span>
+queryClient.setQueryData([<span class="code-val">'post'</span>, id], (old) =&gt; ({ ...old, isLiked: <span class="code-keyword">true</span> }));</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- SLIDE 10: INTERVIEW RUBRIC & SUMMARY -->
+      <section class="slide" data-notes="To wrap up, here are the 5 Golden Rules of Optimistic Writes that you can whiteboard in an interview in 45 seconds:
+      Rule 1: Always mutate local DB (SSOT) first for 0ms perceived response.
+      Rule 2: Never use a global lock; serialize rapid toggles using a Per-Entity Mutex.
+      Rule 3: Store syncStatus persistently in SQLite to survive app kill.
+      Rule 4: Every mutation carries an idempotent requestId for safe re-transmission.
+      Rule 5: Fail gracefully with compensating rollbacks and non-blocking UX.
+      Now let's open the floor for questions and deep-dive discussions!">
+        <span class="slide-tag">SENIOR+ INTERVIEW CHEAT SHEET</span>
+        <h2 class="slide-title">The 5 Golden Rules &amp; Interview Rubric</h2>
+        <p class="slide-subtitle">Master these principles to ace the High-Level Architecture &amp; Deep-Dive rounds</p>
+
+        <div class="content-grid">
+          <div class="card">
+            <h3 class="card-title">
+              <span class="badge-icon badge-emerald">🏆</span>
+              The 5 Golden Rules
+            </h3>
+            <ul>
+              <li><strong>1. Local DB is First &amp; Final Truth:</strong> UI observes SQLite/Room; never bind directly to network responses.</li>
+              <li><strong>2. Per-Entity Lock Granularity:</strong> Serialize using <code>Mutex(postId)</code>; never use global locks that freeze other posts.</li>
+              <li><strong>3. Persistent State Machine:</strong> Keep <code>syncStatus</code> in SQLite so background workers know what's un-synced after process death.</li>
+              <li><strong>4. Idempotency on Every Write:</strong> Tag payloads with a Snowflake <code>requestId</code> so network retries never duplicate mutations.</li>
+              <li><strong>5. Silent Compensation:</strong> On terminal failure, rollback database state cleanly and notify the user with non-intrusive feedback.</li>
+            </ul>
+          </div>
+
+          <div class="card" style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; background: radial-gradient(circle at center, rgba(56, 189, 248, 0.08), transparent 70%); min-height: 280px;">
+            <div style="font-size: 3.5rem; margin-bottom: 14px;">💬</div>
+            <h3 style="font-size: 1.8rem; font-weight: 700; color: #fff; margin-bottom: 8px;">Questions &amp; Discussion</h3>
+            <p style="color: var(--text-muted); max-width: 320px;">Ready to mock interview this deep-dive topic or explore conflict resolution nuances.</p>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <div class="notes-drawer" id="notesDrawer">
+      <div class="notes-header">
+        <span class="notes-title">Presenter Speaking Script</span>
+        <span style="font-size: 0.75rem; color: var(--text-dim);">Press <span class="kbd">N</span> to close</span>
+      </div>
+      <div class="notes-body" id="notesContent">
+        Loading speaker script...
+      </div>
+    </div>
+
+    <footer>
+      <div style="display: flex; gap: 8px;">
+        <button class="nav-btn" id="prevBtn">← Previous [<span class="kbd">←</span>]</button>
+        <button class="nav-btn primary" id="nextBtn">Next → [<span class="kbd">→</span>]</button>
+      </div>
+
+      <div class="progress-track">
+        <div class="progress-bar" id="progressBar"></div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <span class="slide-counter" id="slideCounter">Slide 1 / 10</span>
+        <button class="nav-btn" id="fsBtn" title="Toggle Fullscreen">⛶ Fullscreen</button>
+      </div>
+    </footer>
+  </div>
+
+  <script>
+    const slides = Array.from(document.querySelectorAll('.slide'));
+    let currentIndex = 0;
+    const totalSlides = slides.length;
+
+    const prevBtn = document.getElementById('prevBtn');
+    const nextBtn = document.getElementById('nextBtn');
+    const progressBar = document.getElementById('progressBar');
+    const slideCounter = document.getElementById('slideCounter');
+    const notesDrawer = document.getElementById('notesDrawer');
+    const notesContent = document.getElementById('notesContent');
+    const toggleNotesBtn = document.getElementById('toggleNotesBtn');
+    const fsBtn = document.getElementById('fsBtn');
+    const timerDisplay = document.getElementById('timerDisplay');
+
+    let secondsElapsed = 0;
+    setInterval(() => {
+      secondsElapsed++;
+      const mins = String(Math.floor(secondsElapsed / 60)).padStart(2, '0');
+      const secs = String(secondsElapsed % 60).padStart(2, '0');
+      timerDisplay.textContent = `${mins}:${secs}`;
+    }, 1000);
+
+    function updateSlide(index) {
+      if (index < 0) index = 0;
+      if (index >= totalSlides) index = totalSlides - 1;
+
+      slides.forEach((slide, i) => {
+        slide.classList.toggle('active', i === index);
+      });
+
+      currentIndex = index;
+
+      const progressPercent = ((currentIndex + 1) / totalSlides) * 100;
+      progressBar.style.width = `${progressPercent}%`;
+      slideCounter.textContent = `Slide ${currentIndex + 1} / ${totalSlides}`;
+
+      prevBtn.disabled = currentIndex === 0;
+      prevBtn.style.opacity = currentIndex === 0 ? "0.4" : "1";
+      nextBtn.textContent = currentIndex === totalSlides - 1 ? "Finish" : "Next → [→]";
+
+      const notes = slides[currentIndex].getAttribute('data-notes') || "No notes for this slide.";
+      notesContent.textContent = notes;
+    }
+
+    function toggleNotes() {
+      notesDrawer.classList.toggle('open');
+    }
+
+    function toggleFullscreen() {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(() => {});
+      } else {
+        document.exitFullscreen().catch(() => {});
+      }
+    }
+
+    prevBtn.addEventListener('click', () => updateSlide(currentIndex - 1));
+    nextBtn.addEventListener('click', () => updateSlide(currentIndex + 1));
+    toggleNotesBtn.addEventListener('click', toggleNotes);
+    fsBtn.addEventListener('click', toggleFullscreen);
+
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') {
+        e.preventDefault();
+        updateSlide(currentIndex + 1);
+      } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+        e.preventDefault();
+        updateSlide(currentIndex - 1);
+      } else if (e.key === 'n' || e.key === 'N') {
+        toggleNotes();
+      } else if (e.key === 'f' || e.key === 'F') {
+        toggleFullscreen();
+      }
+    });
+
+    updateSlide(0);
+  </script>
+</body>
+</html>

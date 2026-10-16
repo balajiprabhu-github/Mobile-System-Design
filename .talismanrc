@@ -61,6 +61,11 @@ fileignoreconfig:
   checksum: d89d4ef67f421a0e1ab1099d9aa084565f4a9f0a7cbdb900c33161272f17e477
 - filename: docs/index.html
   checksum: 17e2c88ec170912ad45e0a7e333a7e3230aa07b761597837d9b1d164da894358
+- filename: docs/README.md
+  checksum: ab39990dc609b25786e9253691e4c443c01deb3eef16c79d0341fce36f9d34b4
+- filename: docs/optimistic-writes.html
+  checksum: 56714177343feac285006aa2a5e923e39ea97d3138466aa00ba47af8de976e96
 - filename: NewsFeed/app/src/test/java/com/balajiprabhu/newsfeed/data/repository/FeedRepositoryImplTest.kt
   checksum: f0da7440af3d40f0afc8e7ddd34e857eb2a02a8747cd3a8266334841d6dbd67f
 version: "1.0"
+
